@@ -1,4 +1,5 @@
 import ctypes
+import msvcrt
 import os
 import queue
 import socket
@@ -31,25 +32,23 @@ APP_NAME = "PDF Ligero"
 CONSOLE_TITLE = "PDF Ligero - Convertir a PDF"
 ICON_FILE = "PDFLigero.ico"
 
-# Se muestra solo cuando todo se ha convertido sin un solo error.
-# Esta aqui suelto y sin dependencias a proposito, para que cambiar el dibujo o
-# el texto sea editar estas lineas y nada mas.
-SUCCESS_ART = r"""
-                     )   (
-                    (     )
-                 .-'-------'-.
-               .'             '.
-              /   .-.     .-.   \
-             |   ( o )   ( o )   |
-             |        ___        |
-              \      (___)      /
-               '.             .'
-                 '-._______.-'
+# Icono de la ventanita de conversion. Es el Homer de siempre, y va aparte del
+# icono de la aplicacion: el platano rojo identifica la herramienta en el
+# Explorador y en el menu contextual; Homer sale mientras se convierte.
+CONSOLE_ICON_FILE = "homer.ico"
 
-                    D'oh!
-"""
+FAREWELL_MESSAGE = "Fin. Da las gracias a Dani :)"
 
-SUCCESS_MESSAGE = "Todo convertido. Gracias, Dani."
+IMAGE_ICON = 1
+LR_LOADFROMFILE = 0x00000010
+LR_DEFAULTSIZE = 0x00000040
+WM_SETICON = 0x0080
+ICON_SMALL = 0
+ICON_BIG = 1
+
+# Windows no se queda con una copia del icono: hay que conservar los handles
+# vivos mientras exista la ventana.
+_console_icon_handles = []
 
 
 def resource_path(relative_name):
@@ -69,6 +68,40 @@ def application_icon():
         return QIcon(icon_path)
 
     return None
+
+
+def apply_console_icon():
+    """Pone a Homer en la ventana de conversion.
+
+    Si el icono no viene empaquetado, la ventana se queda con el icono normal:
+    no es motivo para dejar de convertir.
+    """
+    icon_path = resource_path(CONSOLE_ICON_FILE)
+    if not os.path.exists(icon_path):
+        return
+
+    try:
+        user32 = ctypes.windll.user32
+        console_window = ctypes.windll.kernel32.GetConsoleWindow()
+        if not console_window:
+            return
+
+        icon_handle = user32.LoadImageW(
+            None,
+            icon_path,
+            IMAGE_ICON,
+            0,
+            0,
+            LR_LOADFROMFILE | LR_DEFAULTSIZE,
+        )
+        if not icon_handle:
+            return
+
+        _console_icon_handles.append(icon_handle)
+        user32.SendMessageW(console_window, WM_SETICON, ICON_SMALL, icon_handle)
+        user32.SendMessageW(console_window, WM_SETICON, ICON_BIG, icon_handle)
+    except Exception:
+        pass
 
 
 def log(message):
@@ -95,6 +128,7 @@ def ensure_console():
     sys.stderr = open("CONOUT$", "w", encoding="utf-8", buffering=1)
     sys.stdin = open("CONIN$", "r", encoding="utf-8", errors="ignore")
     ctypes.windll.kernel32.SetConsoleTitleW(CONSOLE_TITLE)
+    apply_console_icon()
 
 
 def pause_console():
@@ -102,7 +136,12 @@ def pause_console():
         return
 
     print("")
-    os.system("pause")
+    print(FAREWELL_MESSAGE)
+    print("Pulsa una tecla para cerrar...")
+    try:
+        msvcrt.getch()
+    except Exception:
+        os.system("pause")
 
 
 def normalize_candidates(paths):
@@ -132,37 +171,90 @@ def normalize_candidates(paths):
     return normalized
 
 
-def convert_with_word(input_file, output_file):
-    pythoncom.CoInitialize()
-    word = None
-    document = None
-    try:
-        word = win32com.client.DispatchEx("Word.Application")
-        word.Visible = False
-        word.DisplayAlerts = 0
-        document = word.Documents.Open(input_file, ReadOnly=True)
-        document.SaveAs(output_file, FileFormat=PDF_FILE_FORMAT)
-    finally:
-        if document is not None:
+class WordPdfConverter:
+    """Mantiene una sola instancia de Word para todo el lote.
+
+    Antes se abria y se cerraba Word por cada archivo, asi que convertir veinte
+    documentos arrancaba Word veinte veces. Con una sola instancia compartida el
+    lote va mucho mas rapido y Word deja de parpadear en la barra de tareas.
+    """
+
+    def __init__(self):
+        self.word_app = None
+        self.com_initialized = False
+
+    def open(self):
+        if self.word_app is not None:
+            return
+
+        pythoncom.CoInitialize()
+        self.com_initialized = True
+        try:
+            self.word_app = win32com.client.DispatchEx("Word.Application")
+            self.word_app.Visible = False
+            self.word_app.DisplayAlerts = 0
+            self.word_app.ScreenUpdating = False
+        except Exception:
+            if self.com_initialized:
+                pythoncom.CoUninitialize()
+                self.com_initialized = False
+            raise
+
+    def close(self):
+        if self.word_app is not None:
             try:
-                document.Close(False)
+                self.word_app.Quit()
             except Exception:
                 pass
-        if word is not None:
-            try:
-                word.Quit()
-            except Exception:
-                pass
-        pythoncom.CoUninitialize()
+            finally:
+                self.word_app = None
+
+        if self.com_initialized:
+            pythoncom.CoUninitialize()
+            self.com_initialized = False
+
+    def convert_file(self, input_file, output_file):
+        self.open()
+
+        document = None
+        try:
+            # ExportAsFixedFormat es la exportacion a PDF de verdad. SaveAs con
+            # FileFormat=17 tambien genera un PDF, pero marca el documento como
+            # modificado y respeta peor la maquetacion.
+            document = self.word_app.Documents.Open(
+                os.path.abspath(input_file),
+                ReadOnly=True,
+                AddToRecentFiles=False,
+                ConfirmConversions=False,
+                NoEncodingDialog=True,
+            )
+            document.ExportAsFixedFormat(
+                os.path.abspath(output_file),
+                PDF_FILE_FORMAT,
+            )
+        finally:
+            if document is not None:
+                try:
+                    document.Close(False)
+                except Exception:
+                    pass
 
 
-def convert_single_file(input_file):
+def convert_single_file(input_file, converter=None):
     output_dir = os.path.dirname(input_file)
     pdf_filename = os.path.splitext(os.path.basename(input_file))[0] + ".pdf"
     output_file = os.path.join(output_dir, pdf_filename)
 
     log(f"Convirtiendo: {input_file} -> {output_file}")
-    convert_with_word(input_file, output_file)
+
+    own_converter = converter is None
+    active = converter or WordPdfConverter()
+    try:
+        active.convert_file(input_file, output_file)
+    finally:
+        if own_converter:
+            active.close()
+
     return output_file
 
 
@@ -214,9 +306,8 @@ def print_summary(successful, failed):
     print(f"Log: {LOG_FILE}")
 
     if successful and not failed:
-        print(SUCCESS_ART)
-        print(SUCCESS_MESSAGE)
         print("")
+        print("Todos los archivos se han convertido correctamente.")
 
 
 def run_cli(paths):
@@ -298,6 +389,9 @@ def process_queue(initial_files, server_socket=None):
     successful = []
     failed = []
     last_activity = time.time()
+    # Una sola instancia de Word para todo el lote, incluidos los archivos que
+    # lleguen despues por el socket.
+    converter = WordPdfConverter()
 
     try:
         while True:
@@ -309,7 +403,7 @@ def process_queue(initial_files, server_socket=None):
                 continue
 
             try:
-                output_file = convert_single_file(current_file)
+                output_file = convert_single_file(current_file, converter)
                 successful.append(output_file)
                 print(f"OK: {os.path.basename(current_file)} -> {os.path.basename(output_file)}")
             except Exception as exc:
@@ -320,6 +414,7 @@ def process_queue(initial_files, server_socket=None):
                 file_queue.task_done()
                 last_activity = time.time()
     finally:
+        converter.close()
         if server_socket is not None:
             server_socket.close()
 

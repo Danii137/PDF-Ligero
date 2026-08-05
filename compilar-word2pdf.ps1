@@ -44,14 +44,28 @@ $iconoOrigen = Join-Path $carpetaFirma.FullName "assets\PDFLigero.png"
 $iconoIco = Join-Path $trabajo "PDFLigero.ico"
 $generador = Join-Path $carpetaFirma.FullName "generate-icon.ps1"
 
+# Homer va aparte del icono de la aplicacion: el platano identifica la
+# herramienta en el Explorador y en el menu contextual, y Homer sale en la
+# ventanita mientras se convierte. Si no esta el PNG, se compila sin el.
+$homerOrigen = Join-Path $root "logo.png"
+$homerIco = Join-Path $trabajo "homer.ico"
+
 if (-not (Test-Path -LiteralPath $iconoOrigen)) {
     throw "No se encuentra el PNG del icono: $iconoOrigen"
 }
 
 New-Item -ItemType Directory -Force -Path $trabajo | Out-Null
 
-Write-Host "[1/4] Generando el icono desde el mismo PNG que PDF Ligero..."
+Write-Host "[1/4] Generando los iconos..."
 & $generador -InputPngPath $iconoOrigen -OutputIcoPath $iconoIco
+
+$incluirHomer = Test-Path -LiteralPath $homerOrigen
+if ($incluirHomer) {
+    & $generador -InputPngPath $homerOrigen -OutputIcoPath $homerIco
+}
+else {
+    Write-Host "      Sin logo.png: la ventanita usara el icono normal."
+}
 
 Write-Host "[2/4] Compilando con PyInstaller..."
 $argumentos = @(
@@ -59,8 +73,16 @@ $argumentos = @(
     "--clean", "--noconfirm", "--onefile",
     "--name", "Word2PDF",
     "--icon", $iconoIco,
-    # El icono viaja dentro del EXE para poder ponerlo tambien en la ventana.
-    "--add-data", ($iconoIco + ";."),
+    # Los iconos viajan dentro del EXE para poder aplicarlos en tiempo de
+    # ejecucion a la ventana y a la consola.
+    "--add-data", ($iconoIco + ";.")
+)
+
+if ($incluirHomer) {
+    $argumentos += @("--add-data", ($homerIco + ";."))
+}
+
+$argumentos += @(
     "--workpath", (Join-Path $trabajo "pyi-work"),
     "--distpath", (Join-Path $trabajo "pyi-dist"),
     "--specpath", $trabajo,

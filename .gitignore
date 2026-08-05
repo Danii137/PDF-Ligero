@@ -32,3 +32,7 @@ appearances_from_acrobat.pdf
 *.log
 Thumbs.db
 desktop.ini
+
+# Logo de Homer: imagen con copyright de terceros, no se publica
+logo.png
+homer.ico
