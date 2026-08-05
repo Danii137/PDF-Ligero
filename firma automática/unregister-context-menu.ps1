@@ -1,7 +1,13 @@
-$openCommandKey = "HKCU:\Software\Classes\SystemFileAssociations\.pdf\shell\PDFLigero.Open"
-$commandKey = "HKCU:\Software\Classes\SystemFileAssociations\.pdf\shell\FirmarPDFs"
-$mergeCommandKey = "HKCU:\Software\Classes\SystemFileAssociations\.pdf\shell\PDFLigero.Merge"
-$applicationKey = "HKCU:\Software\Classes\Applications\PDFLigero.exe"
+param(
+    # Ver install-context-menu.ps1: solo se cambia en QA.
+    [string]$RegistryRoot = "HKCU:"
+)
+
+$associationsKey = Join-Path $RegistryRoot "Software\Classes\SystemFileAssociations\.pdf\shell"
+$openCommandKey = Join-Path $associationsKey "PDFLigero.Open"
+$commandKey = Join-Path $associationsKey "FirmarPDFs"
+$mergeCommandKey = Join-Path $associationsKey "PDFLigero.Merge"
+$applicationKey = Join-Path $RegistryRoot "Software\Classes\Applications\PDFLigero.exe"
 
 if (Test-Path $mergeCommandKey) {
     Remove-Item -LiteralPath $mergeCommandKey -Recurse -Force
@@ -19,8 +25,8 @@ if (Test-Path $applicationKey) {
     Remove-Item -LiteralPath $applicationKey -Recurse -Force
 }
 
-$explorerKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer"
-$installerStateKey = "HKCU:\Software\PDFLigero\Installer"
+$explorerKey = Join-Path $RegistryRoot "Software\Microsoft\Windows\CurrentVersion\Explorer"
+$installerStateKey = Join-Path $RegistryRoot "Software\PDFLigero\Installer"
 if (Test-Path $installerStateKey) {
     $installerState = Get-ItemProperty -Path $installerStateKey
     $currentPromptValue = Get-ItemProperty -Path $explorerKey -Name "MultipleInvokePromptMinimum" -ErrorAction SilentlyContinue

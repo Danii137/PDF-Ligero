@@ -1,15 +1,11 @@
 @echo off
+REM Se conserva por compatibilidad: ahora hay un desinstalador unico que retira
+REM tanto Word2PDF como PDF Ligero. Este archivo solo lo lanza.
 setlocal
 
-echo ==========================================
-echo DESINSTALADOR DE WORD2PDF
-echo ==========================================
-echo.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0desinstalar.ps1"
+set "CODIGO=%ERRORLEVEL%"
 
-reg delete "HKCU\Software\Classes\SystemFileAssociations\.docx\shell\Word2PDF" /f >nul 2>&1
-reg delete "HKCU\Software\Classes\SystemFileAssociations\.doc\shell\Word2PDF" /f >nul 2>&1
-reg delete "HKCU\Software\Classes\SystemFileAssociations\.rtf\shell\Word2PDF" /f >nul 2>&1
-
-echo Menu contextual eliminado para el usuario actual.
 echo.
 pause
+exit /b %CODIGO%

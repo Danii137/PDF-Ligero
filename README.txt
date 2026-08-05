@@ -92,10 +92,18 @@ INSTALACION
 -----------
 1. Copia la carpeta completa "Word2PDF_Installer" a una ubicacion fija.
    Tambien puede estar en una carpeta compartida del servidor si todos tienen acceso de lectura.
-2. Comprueba que dentro esta el archivo "Word2PDF.exe".
-3. Ejecuta "install.bat".
-4. No muevas ni renombres la carpeta despues de instalar.
+2. Ejecuta "instalar.bat".
+   Registra las dos herramientas de una vez: Word2PDF y PDF Ligero. Instala lo
+   que encuentre y avisa de lo que falte, en vez de detenerse.
+3. No muevas ni renombres la carpeta despues de instalar.
    Si lo instalas desde el servidor, usa siempre la misma ruta compartida.
+
+Si solo quieres una de las dos:
+   "install_pdf_ligero.bat"  registra solo PDF Ligero.
+   "instalar.bat" y "install.bat" registran ambas.
+
+PDF Ligero necesita estar compilado antes ("firma automática\build.ps1").
+Word2PDF necesita Microsoft Word instalado en cada equipo.
 
 USO
 ---
@@ -115,4 +123,15 @@ NOTAS
 
 DESINSTALACION
 --------------
-1. Ejecuta "uninstall.bat".
+1. Ejecuta "desinstalar.bat" (retira las dos herramientas).
+   "uninstall_pdf_ligero.bat" retira solo PDF Ligero.
+   No se borra ningun archivo: solo se deshace el registro del menu contextual.
+
+LICENCIAS
+---------
+PDF Ligero incorpora iTextSharp, que es software AGPL v3. Usarlo dentro de la
+organizacion no obliga a nada. Distribuirlo a terceros si: hay que publicar el
+codigo bajo AGPL o comprar una licencia comercial de iText.
+
+El detalle esta en "LICENCIAS.md" y la atribucion de terceros en
+"THIRD-PARTY-NOTICES.md".

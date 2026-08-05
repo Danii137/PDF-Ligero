@@ -1,29 +1,10 @@
 @echo off
+REM Quita solo PDF Ligero. Para retirar tambien Word2PDF usa desinstalar.bat.
 setlocal
 
-set "SCRIPT_DIR=%~dp0"
-set "UNINSTALL_SCRIPT="
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0desinstalar.ps1" -SoloPdfLigero
+set "CODIGO=%ERRORLEVEL%"
 
-for /d %%D in ("%SCRIPT_DIR%firma*") do (
-    if exist "%%~fD\unregister-context-menu.ps1" (
-        set "UNINSTALL_SCRIPT=%%~fD\unregister-context-menu.ps1"
-    )
-)
-
-if not defined UNINSTALL_SCRIPT (
-    echo [ERROR] No se encontro el desinstalador de PDF Ligero.
-    pause
-    exit /b 1
-)
-
-powershell -NoProfile -ExecutionPolicy Bypass -File "%UNINSTALL_SCRIPT%"
-if errorlevel 1 (
-    echo [ERROR] No se pudo eliminar la integracion de PDF Ligero.
-    pause
-    exit /b 1
-)
-
-echo.
-echo Integracion de PDF Ligero eliminada.
 echo.
 pause
+exit /b %CODIGO%

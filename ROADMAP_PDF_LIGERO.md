@@ -323,19 +323,43 @@ Hecho:
 - herramientas pesadas siguen bajo demanda; la memoria medida es idéntica a la
   de la fase 8 en los cinco escenarios del benchmark.
 
-Pendiente:
+Distribución, cerrada el 5 de agosto de 2026:
 
-- instalador único para Word2PDF y PDF Ligero;
-- actualización del motor PDFium;
-- revisión de la estrategia de licencias antes de distribuir fuera de un uso
-  propio o interno;
-- firma Authenticode del ejecutable si el programa se distribuye.
+- **instalador único** para Word2PDF y PDF Ligero: `instalar.bat` registra las
+  dos herramientas, instala lo que encuentra y avisa de lo que falta en vez de
+  abortar. `desinstalar.bat` hace lo contrario. Los cuatro `.bat` anteriores se
+  conservan como lanzadores para no romper accesos directos;
+- **revisión de licencias** completa en `LICENCIAS.md`, con la atribución que
+  debe acompañar a una copia en `THIRD-PARTY-NOTICES.md`;
+- el ejecutable ya se identifica: producto, empresa, versión 1.0.0 y el aviso de
+  copyright que pide la AGPL (`firma automática/AssemblyInfo.cs`);
+- **firma Authenticode** preparada y probada en `firmar-ejecutables.ps1`, con
+  sellado de tiempo y verificación.
+
+Pendiente, con el motivo:
+
+- **actualizar PDFium: bloqueado, no aplazado.** El paquete nativo que usa el
+  proyecto (`PdfiumViewer.Native.x86_64.v8-xfa` 2018.4.8.256) es el último que
+  existe, y `PdfiumViewer` 2.13.0 también está abandonado. Una compilación
+  moderna de PDFium no exporta dos funciones que el wrapper sí llama
+  (`FPDF_Release` y `FPDFDest_GetPageIndex`, esta última renombrada upstream a
+  `FPDFDest_GetDestPageIndex`), así que romperían la descarga de la librería, la
+  navegación por marcadores y los enlaces de página. Adoptarla exige bifurcar
+  PdfiumViewer, que es Apache 2.0. Para evaluar cualquier candidato hay una
+  herramienta: `firma automática/build/validation-pdfium-compat/`;
+- **ejecutar la firma Authenticode**: hace falta un certificado de firma de
+  código, que hay que comprar. El del equipo es de firma de documentos y no
+  sirve;
+- **elegir la licencia del repositorio**: es la decisión que queda abierta en
+  `LICENCIAS.md`.
 
 ## Siguiente entrega
 
-La siguiente prioridad es la parte de distribución de la fase 9: instalador
-único, actualización de PDFium, revisión de licencias y firma Authenticode. Como
-mejora funcional independiente queda reutilizar opcionalmente una posición
+De la fase 9 solo queda lo que depende de una compra o una decisión: el
+certificado de firma de código y la licencia del repositorio. La actualización
+de PDFium es un proyecto aparte, con el análisis ya hecho.
+
+Como mejora funcional independiente queda reutilizar opcionalmente una posición
 normalizada de firma en lotes, confirmando cada PDF antes de firmarlo.
 
 La redacción real y el saneado continúan siendo opcionales. No se publicarán

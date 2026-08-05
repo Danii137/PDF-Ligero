@@ -120,11 +120,24 @@ El endurecimiento transversal de la fase 9 quedó **completado el 5 de agosto de
 homogéneos en español, diálogo propio de contraseña y modo protegido de solo
 lectura en el visor.
 
-Lo siguiente es la parte de distribución: instalador único para Word2PDF y PDF
-Ligero, actualización del motor PDFium, revisión de licencias y firma
-Authenticode. Después puede añadirse la reutilización opcional de posición de
-firma en lotes. La redacción/saneado real seguirá siendo un módulo opcional
-hasta demostrar que elimina también contenido oculto.
+La parte de distribución quedó cerrada el mismo día: instalador único
+(`instalar.bat` en la raíz), revisión de licencias (`LICENCIAS.md` y
+`THIRD-PARTY-NOTICES.md`), metadatos de versión en el ejecutable y script de
+firma Authenticode probado (`firmar-ejecutables.ps1`).
+
+De la fase 9 solo queda lo que depende de una compra o una decisión:
+
+- comprar un certificado de firma de código y ejecutar `firmar-ejecutables.ps1`;
+- elegir la licencia del repositorio entre las opciones de `LICENCIAS.md`.
+
+**Actualizar PDFium está bloqueado**, no aplazado: el paquete nativo de 2018 es
+el último que existe y una compilación moderna no exporta dos funciones que el
+wrapper llama. Hay un analizador de compatibilidad en
+`build/validation-pdfium-compat/` y el detalle en `..\CONTEXTO_PDF_LIGERO.md`.
+
+Después puede añadirse la reutilización opcional de posición de firma en lotes.
+La redacción/saneado real seguirá siendo un módulo opcional hasta demostrar que
+elimina también contenido oculto.
 
 El proyecto ya tiene control de versiones: `https://github.com/Danii137/PDF-Ligero`.
 `firma_limpia.png` queda deliberadamente fuera del repositorio por ser una firma

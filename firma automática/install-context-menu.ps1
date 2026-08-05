@@ -1,3 +1,9 @@
+param(
+    # Raiz del registro bajo la que se escribe todo. Solo se cambia en QA, para
+    # poder comprobar el instalador sin tocar la integracion real del usuario.
+    [string]$RegistryRoot = "HKCU:"
+)
+
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -22,11 +28,12 @@ if ((Test-Path $iconGenerator) -and (Test-Path $iconSourcePng)) {
 
 $menuIconPath = if (Test-Path $iconPath) { $iconPath } else { $exePath }
 
-$openCommandKey = "HKCU:\Software\Classes\SystemFileAssociations\.pdf\shell\PDFLigero.Open"
+$associationsKey = Join-Path $RegistryRoot "Software\Classes\SystemFileAssociations\.pdf\shell"
+$openCommandKey = Join-Path $associationsKey "PDFLigero.Open"
 $openCommandSubKey = Join-Path $openCommandKey "command"
-$commandKey = "HKCU:\Software\Classes\SystemFileAssociations\.pdf\shell\FirmarPDFs"
+$commandKey = Join-Path $associationsKey "FirmarPDFs"
 $commandSubKey = Join-Path $commandKey "command"
-$mergeCommandKey = "HKCU:\Software\Classes\SystemFileAssociations\.pdf\shell\PDFLigero.Merge"
+$mergeCommandKey = Join-Path $associationsKey "PDFLigero.Merge"
 $mergeCommandSubKey = Join-Path $mergeCommandKey "command"
 
 New-Item -Path $openCommandKey -Force | Out-Null
@@ -52,7 +59,7 @@ Set-ItemProperty -Path $mergeCommandKey -Name "Icon" -Value $menuIconPath
 New-Item -Path $mergeCommandSubKey -Force | Out-Null
 Set-Item -Path $mergeCommandSubKey -Value ('"{0}" --merge "%1"' -f $exePath)
 
-$applicationKey = "HKCU:\Software\Classes\Applications\PDFLigero.exe"
+$applicationKey = Join-Path $RegistryRoot "Software\Classes\Applications\PDFLigero.exe"
 $applicationDefaultIconKey = Join-Path $applicationKey "DefaultIcon"
 $applicationOpenCommandKey = Join-Path $applicationKey "shell\open\command"
 $supportedTypesKey = Join-Path $applicationKey "SupportedTypes"
@@ -65,8 +72,12 @@ Set-Item -Path $applicationOpenCommandKey -Value ('"{0}" --open "%1"' -f $exePat
 New-Item -Path $supportedTypesKey -Force | Out-Null
 New-ItemProperty -Path $supportedTypesKey -Name ".pdf" -PropertyType String -Value "" -Force | Out-Null
 
-$explorerKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer"
-$installerStateKey = "HKCU:\Software\PDFLigero\Installer"
+$explorerKey = Join-Path $RegistryRoot "Software\Microsoft\Windows\CurrentVersion\Explorer"
+$installerStateKey = Join-Path $RegistryRoot "Software\PDFLigero\Installer"
+if (-not (Test-Path $explorerKey)) {
+    New-Item -Path $explorerKey -Force | Out-Null
+}
+
 if (-not (Test-Path $installerStateKey)) {
     New-Item -Path $installerStateKey -Force | Out-Null
     $existingPromptValue = Get-ItemProperty -Path $explorerKey -Name "MultipleInvokePromptMinimum" -ErrorAction SilentlyContinue

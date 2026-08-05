@@ -3,12 +3,13 @@
 > Documento de relevo para Claude Code, Codex u otro agente.
 >
 > **Última auditoría:** 5 de agosto de 2026  
-> **Estado funcional estable:** fases 1–8 terminadas y **endurecimiento
-> transversal de la fase 9 completado**: diagnóstico único de PDFs protegidos,
-> cifrados o dañados, mensajes homogéneos en español y modo protegido de solo
-> lectura en el visor.  
-> **Siguiente prioridad:** lo que queda de la fase 9 — instalador único,
-> actualización de PDFium, revisión de licencias y firma Authenticode.  
+> **Estado funcional estable:** fases 1–8 terminadas y **fase 9 completada**
+> salvo lo que depende de una compra o una decisión: endurecimiento transversal
+> de PDFs protegidos, instalador único, revisión de licencias y firma
+> Authenticode preparada.  
+> **Siguiente prioridad:** comprar el certificado de firma de código, elegir la
+> licencia del repositorio (ver `LICENCIAS.md`) y, como proyecto aparte,
+> bifurcar PdfiumViewer si se quiere actualizar PDFium.  
 > **Regla de lectura:** cuando este archivo y una suposición entren en conflicto,
 > comprobar primero el código y los informes de QA. Las casillas pendientes de
 > la sección 12 son el protocolo para trabajos futuros, no tareas abiertas de
@@ -100,17 +101,33 @@ Set-Location -LiteralPath 'D:\desarrollos\Word2PDF_Installer'
 .\install_pdf_ligero.bat
 ```
 
-Ese `.bat` localiza la carpeta `firma*` y ejecuta
-`firma automática\install-context-menu.ps1`. No hace falta reinstalar la
-integración para cada recompilación si la ruta de salida no cambia.
+Desde el 5 de agosto de 2026 hay un **instalador único** en la raíz que registra
+las dos herramientas:
+
+```powershell
+Set-Location -LiteralPath 'D:\desarrollos\Word2PDF_Installer'
+.\instalar.bat          # Word2PDF y PDF Ligero
+.\desinstalar.bat
+```
+
+`instalar.ps1` instala lo que encuentra y avisa de lo que falta en vez de
+abortar, admite `-SoloWord2PDF` y `-SoloPdfLigero`, y acepta `-RegistryRoot`
+para poder comprobarlo en QA contra una clave de prueba sin tocar la integración
+real del usuario. `install-context-menu.ps1` y `unregister-context-menu.ps1`
+aceptan el mismo parámetro.
+
+`install_pdf_ligero.bat` y los otros tres `.bat` antiguos se conservan como
+lanzadores del instalador único, para no romper accesos directos ni la
+documentación anterior. No hace falta reinstalar la integración para cada
+recompilación si la ruta de salida no cambia.
 
 ### Estado del binario actual
 
 ```text
 PDFLigero.exe
-Fecha: 05/08/2026 09:11  
-Tamaño: 845312 bytes  
-SHA-256: 1BA04E1DBD5BE7B5D8FEAA4397B8C10B3390CF45ED4316762C9B70F03479210F
+Version: 1.0.0.0 (PDF Ligero, AGOIN)
+Tamaño: 846336 bytes  
+SHA-256: 2947F5A333FBD8100869562A7DA5CE19D0E51F5947B75C0A3BB297CC081B95A6
 ```
 
 Ojo al comparar: `csc` incrusta un MVID nuevo en cada compilación, así que
@@ -162,8 +179,42 @@ El código debe mantenerse compatible con C# 5 y .NET Framework:
 - PdfiumViewer Native x86_64 v8-xfa `2018.4.8.256`;
 - Tesseract OCR local `5.5`, con `spa`, `eng` y `osd`.
 
-iTextSharp 5 se distribuye bajo AGPL. La estrategia de licencia debe revisarse
-antes de distribuir el programa fuera de un uso propio o interno.
+iTextSharp 5 se distribuye bajo AGPL. La revisión completa está en
+`LICENCIAS.md` y la atribución que debe acompañar a una copia, en
+`THIRD-PARTY-NOTICES.md`. Resumen: el uso interno no obliga a nada; distribuir
+el programa sí, y hay que elegir entre publicarlo bajo AGPL v3 o comprar una
+licencia comercial de iText.
+
+### PDFium está congelado y no es cuestión de pereza
+
+`PdfiumViewer.Native.x86_64.v8-xfa` 2018.4.8.256 **es la última versión que
+existe**; `PdfiumViewer` 2.13.0 también está abandonado desde 2017. Una
+compilación moderna de PDFium (por ejemplo `bblanchon.PDFium.Win32`) no sirve
+como sustitución directa: de las 67 funciones que el wrapper importa, faltan
+cuatro, y dos de ellas se usan de verdad.
+
+| Función ausente | Consecuencia |
+|---|---|
+| `FPDF_Release` | `PdfLibrary.Dispose`. Rompe la descarga limpia de la librería |
+| `FPDFDest_GetPageIndex` | `PdfFile.GetBookmarkPageIndex` y `PdfFile.GetPageLinks`. Rompe la navegación por marcadores y los enlaces. Upstream se renombró a `FPDFDest_GetDestPageIndex` |
+| `FPDF_AddRef` | Declarada en el wrapper pero nunca llamada: inocua |
+| `FPDFPageObj_NewImgeObj` | Declarada pero nunca llamada. El `pdfium.dll` que se usa hoy tampoco la exporta, y la aplicación funciona |
+
+`FPDF_AddRef` y `FPDF_Release` no existen en PDFium oficial: son un parche
+propio de aquella compilación. Actualizar exige bifurcar PdfiumViewer, que es
+Apache 2.0 y permite hacerlo.
+
+Para evaluar cualquier candidato antes de invertir el trabajo:
+
+```powershell
+.\build\validation-pdfium-compat\check-pdfium-compatibility.ps1 `
+    -CandidatePath C:\ruta\pdfium.dll
+```
+
+Distingue las ausencias que rompen la aplicación de las que no. Ojo: solo
+comprueba que existan los símbolos, no que se comporten igual. Siete años de
+diferencia pueden traer cambios de render que solo se ven pasando la batería
+completa de QA y mirando las capturas.
 
 ## 4. Arquitectura y archivos clave
 
