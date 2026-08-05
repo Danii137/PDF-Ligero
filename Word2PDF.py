@@ -28,6 +28,26 @@ ALLOWED_EXTENSIONS = {".doc", ".docx", ".rtf"}
 PDF_FILE_FORMAT = 17
 MAX_BATCH_FILES = 50
 
+# NO cambiar la impresora activa de Word para acelerar la exportacion.
+#
+# Word pagina usando el driver de la impresora activa, asi que la primera
+# exportacion espera a que ese driver responda. Con una impresora de red en
+# puerto WSD eso puede tardar unos once segundos, frente a las centesimas que
+# tardan las siguientes. Apuntar Word a un driver local baja ese primer PDF a
+# menos de dos segundos, y se comprobo que el resultado es identico byte a byte.
+#
+# Aun asi no se hace, por dos motivos medidos:
+#
+# 1. Application.ActivePrinter no es un ajuste de Word: cambia la impresora
+#    predeterminada de Windows del usuario. Si el proceso muere a medias, la
+#    persona se queda imprimiendo a otro sitio sin saberlo.
+# 2. Devolver la impresora original cuesta casi lo mismo que se ahorra (7,8 s
+#    medidos), porque volver a asignarla inicializa su driver igual. El coste se
+#    mueve del principio al final en vez de desaparecer.
+#
+# La causa real es el puerto WSD de la impresora, y se arregla instalandola en un
+# puerto TCP/IP estandar. Eso acelera Word entero, no solo esta herramienta.
+
 APP_NAME = "PDF Ligero"
 CONSOLE_TITLE = "PDF Ligero - Convertir a PDF"
 ICON_FILE = "PDFLigero.ico"
@@ -276,7 +296,7 @@ def validate_batch_size(paths):
     )
     print(message)
     log(f"Lote rechazado por exceso de archivos: {len(paths)}")
-    show_error_dialog("Word2PDF", message)
+    show_error_dialog(APP_NAME, message)
     return False
 
 
@@ -313,7 +333,7 @@ def print_summary(successful, failed):
 def run_cli(paths):
     initial_files = normalize_candidates(paths)
     if not initial_files:
-        show_error_dialog("Word2PDF", "No hay archivos DOC, DOCX o RTF validos para convertir.")
+        show_error_dialog(APP_NAME, "No hay archivos DOC, DOCX o RTF validos para convertir.")
         log("No se recibieron archivos validos.")
         return 1
     if not validate_batch_size(initial_files):
@@ -413,18 +433,22 @@ def process_queue(initial_files, server_socket=None):
             finally:
                 file_queue.task_done()
                 last_activity = time.time()
+
+        # El resumen se muestra antes de cerrar Word: los PDF ya estan escritos
+        # en este punto, y cerrar Word puede llevarse varios segundos. Asi se ve
+        # el resultado en cuanto existe, no cuando termina la limpieza.
+        print_summary(successful, failed)
     finally:
         converter.close()
         if server_socket is not None:
             server_socket.close()
 
-    print_summary(successful, failed)
     log(f"Proceso finalizado. Correctos={len(successful)} Fallos={len(failed)}")
 
     if failed:
         failed_names = "\n".join(os.path.basename(path) for path, _ in failed[:10])
         show_error_dialog(
-            "Word2PDF",
+            APP_NAME,
             "Algunos archivos no se pudieron convertir.\n\n"
             f"Revisa {LOG_FILE}\n\n"
             f"Archivos con error:\n{failed_names}",

@@ -120,6 +120,25 @@ Si alguna vez recompilas Word2PDF, usa "compilar-word2pdf.ps1": genera el icono
 desde el mismo PNG que PDF Ligero, lo incrusta en el ejecutable y comprueba una
 conversion real antes de sustituir el anterior, del que deja copia .bak.
 
+SI LA CONVERSION VA LENTA
+-------------------------
+Medido en el equipo de desarrollo: convertir el PRIMER documento tardaba 10,9
+segundos y cada uno de los siguientes 0,04. La causa no esta en el programa,
+sino en la impresora predeterminada.
+
+Word calcula la paginacion usando el driver de la impresora activa. Si esa
+impresora esta instalada en un puerto WSD (descubrimiento por red), Word espera a
+que responda antes de exportar el primer PDF.
+
+La solucion es de sistema, no del programa: instalar la impresora en un puerto
+TCP/IP estandar en vez de WSD. Eso acelera Word entero, no solo esta
+herramienta. Tambien vale con dejar como predeterminada una impresora local
+mientras se convierten muchos documentos.
+
+No se hace desde el programa a proposito: cambiar la impresora activa de Word
+cambia la predeterminada de Windows del usuario, y si el proceso se corta a
+medias quedaria cambiada sin avisar.
+
 NOTAS
 -----
 - El instalador registra el menu contextual para .doc, .docx y .rtf.

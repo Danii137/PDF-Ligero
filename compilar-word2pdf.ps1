@@ -68,25 +68,21 @@ else {
 }
 
 Write-Host "[2/4] Compilando con PyInstaller..."
-$argumentos = @(
-    "-3", "-m", "PyInstaller",
-    "--clean", "--noconfirm", "--onefile",
-    "--name", "Word2PDF",
-    "--icon", $iconoIco,
-    # Los iconos viajan dentro del EXE para poder aplicarlos en tiempo de
-    # ejecucion a la ventana y a la consola.
-    "--add-data", ($iconoIco + ";.")
-)
 
-if ($incluirHomer) {
-    $argumentos += @("--add-data", ($homerIco + ";."))
+# La receta vive en Word2PDF.spec, no aqui: hace falta un .spec para poder
+# quitar binarios concretos del paquete, y todo lo que va dentro se descomprime
+# en %TEMP% en cada ejecucion.
+$receta = Join-Path $root "Word2PDF.spec"
+if (-not (Test-Path -LiteralPath $receta)) {
+    throw "No se encuentra la receta de empaquetado: $receta"
 }
 
-$argumentos += @(
+$argumentos = @(
+    "-3", "-m", "PyInstaller",
+    "--clean", "--noconfirm",
     "--workpath", (Join-Path $trabajo "pyi-work"),
     "--distpath", (Join-Path $trabajo "pyi-dist"),
-    "--specpath", $trabajo,
-    (Join-Path $root "Word2PDF.py")
+    $receta
 )
 
 & py @argumentos
