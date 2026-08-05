@@ -34,6 +34,10 @@ namespace FirmaAutomatica
         private const int CollapsedNavigationWidth = 36;
         private const int MaximumOpenTabs = 50;
 
+        // Tope de seguridad del bucle de contraseña. El usuario puede reintentar
+        // mientras quiera; esto solo garantiza que el bucle termine.
+        private const int MaximumPasswordAttempts = 10;
+
         private readonly List<string> initialPaths;
         private readonly List<PdfWorkspace> workspaces = new List<PdfWorkspace>();
         private readonly Dictionary<string, PdfWorkspace> workspaceByPath =
@@ -792,6 +796,18 @@ namespace FirmaAutomatica
                     PdfWorkspace existingWorkspace;
                     if (workspaceByPath.TryGetValue(path, out existingWorkspace))
                     {
+                        // Volver a abrir el archivo es la única forma de que el
+                        // diálogo de contraseña reaparezca tras cancelarlo. No se
+                        // reintenta al pasear entre pestañas: un modal ahí seria
+                        // reentrante con el cierre y la recuperación.
+                        if (existingWorkspace.PasswordPromptCancelled &&
+                            existingWorkspace.LoadFailed &&
+                            !existingWorkspace.IsDisposed)
+                        {
+                            existingWorkspace.PasswordPromptCancelled = false;
+                            existingWorkspace.LoadFailed = false;
+                        }
+
                         if (firstWorkspaceToActivate == null)
                         {
                             firstWorkspaceToActivate = existingWorkspace;
@@ -1106,6 +1122,12 @@ namespace FirmaAutomatica
             var workspace = activeWorkspace;
             if (workspace == null)
             {
+                return;
+            }
+
+            if (workspace.IsPasswordProtected)
+            {
+                System.Media.SystemSounds.Beep.Play();
                 return;
             }
 
@@ -1660,6 +1682,7 @@ namespace FirmaAutomatica
 
             var workspace = GetLoadedActiveWorkspace();
             if (workspace == null ||
+                workspace.IsPasswordProtected ||
                 string.IsNullOrWhiteSpace(workspace.ContentPath) ||
                 !File.Exists(workspace.ContentPath))
             {
@@ -1976,6 +1999,7 @@ namespace FirmaAutomatica
                 workspace.Document == null ||
                 workspace.EditSession == null ||
                 workspace.EditHistoryFaulted ||
+                workspace.IsPasswordProtected ||
                 IsPageStructureOperationInProgress)
             {
                 System.Media.SystemSounds.Beep.Play();
@@ -2045,6 +2069,7 @@ namespace FirmaAutomatica
                 workspace.Document == null ||
                 workspace.EditSession == null ||
                 workspace.EditHistoryFaulted ||
+                workspace.IsPasswordProtected ||
                 IsPageStructureOperationInProgress)
             {
                 System.Media.SystemSounds.Beep.Play();
@@ -2677,6 +2702,7 @@ namespace FirmaAutomatica
                 workspace.Document == null ||
                 workspace.EditSession == null ||
                 workspace.EditHistoryFaulted ||
+                workspace.IsPasswordProtected ||
                 IsPageStructureOperationInProgress)
             {
                 return;
@@ -3662,10 +3688,17 @@ namespace FirmaAutomatica
                 (workspace.EditSession.HasUnsavedChanges ||
                  (workspace.EditHistoryFaulted &&
                   !workspace.FaultedChangesSaved));
+            // El prefijo de fallo debe sobrevivir a este refresco: antes se
+            // reescribía el texto sin él y la marca nunca llegaba a verse.
             workspace.TabPage.Text =
-                workspace.DisplayName + (dirty ? "  •" : string.Empty);
+                (workspace.LoadFailed ? "! " : string.Empty) +
+                workspace.DisplayName +
+                (dirty ? "  •" : string.Empty);
             workspace.TabPage.ToolTipText =
                 workspace.Path +
+                (workspace.IsPasswordProtected
+                    ? "\r\nProtegido con contraseña · solo lectura"
+                    : string.Empty) +
                 (dirty
                     ? "\r\nCambios protegidos en recuperación automática"
                     : string.Empty);
@@ -3677,7 +3710,9 @@ namespace FirmaAutomatica
             {
                 documentEyebrowLabel.Text = dirty
                     ? "CAMBIOS SIN GUARDAR"
-                    : "DOCUMENTO ACTIVO";
+                    : (workspace.IsPasswordProtected
+                        ? "DOCUMENTO PROTEGIDO"
+                        : "DOCUMENTO ACTIVO");
                 documentLabel.Text = workspace.DisplayName;
                 documentLabel.Tag = workspace.ContentPath;
                 Text =
@@ -3927,6 +3962,138 @@ namespace FirmaAutomatica
             return workspace;
         }
 
+        /// <summary>
+        /// Marca la pestaña como no cargada tras un fallo o una cancelación, con
+        /// las guardas necesarias porque el diálogo de contraseña pudo haber
+        /// permitido cerrarla mientras estaba abierto.
+        /// </summary>
+        private static void MarkWorkspaceLoadFailure(
+            PdfWorkspace workspace,
+            bool cancelledAtPasswordPrompt)
+        {
+            if (workspace == null || workspace.IsDisposed)
+            {
+                return;
+            }
+
+            workspace.LoadFailed = true;
+            workspace.PasswordPromptCancelled = cancelledAtPasswordPrompt;
+
+            if (workspace.TabPage != null && !workspace.TabPage.IsDisposed)
+            {
+                workspace.TabPage.Text = "! " + workspace.DisplayName;
+            }
+        }
+
+        /// <summary>
+        /// Muestra un fallo de PDF con la causa ya traducida al español. Toda la
+        /// aplicación pasa por aquí para que el mismo problema se explique igual
+        /// en cualquier herramienta y para que el texto inglés de PDFium o iText
+        /// no llegue nunca al usuario.
+        /// </summary>
+        private void ShowPdfProblem(
+            string title,
+            string headline,
+            string closingNote,
+            Exception error,
+            string path)
+        {
+            var report = PdfProblemDiagnostics.Analyze(error, path);
+            var message = string.IsNullOrWhiteSpace(headline)
+                ? report.Description
+                : headline + "\r\n\r\n" + report.Description;
+
+            if (!string.IsNullOrWhiteSpace(report.Advice))
+            {
+                message += "\r\n\r\n" + report.Advice;
+            }
+
+            if (!string.IsNullOrWhiteSpace(closingNote))
+            {
+                message += "\r\n\r\n" + closingNote;
+            }
+
+            MessageBox.Show(
+                this,
+                message,
+                string.IsNullOrWhiteSpace(title) ? "PDF Ligero" : title,
+                MessageBoxButtons.OK,
+                report.IsPolicyBlock
+                    ? MessageBoxIcon.Warning
+                    : MessageBoxIcon.Error);
+        }
+
+        /// <summary>
+        /// Abre el PDF de una pestaña y, si pide contraseña de apertura, la
+        /// solicita con el diálogo propio en lugar del formulario en inglés de
+        /// PdfiumViewer.
+        ///
+        /// Devuelve null cuando el usuario cancela o agota los intentos, que no
+        /// es un error y no debe mostrar ningún diálogo rojo. El primer intento
+        /// se hace sin contraseña, de modo que un PDF normal se abre exactamente
+        /// con la misma entrada/salida que antes.
+        /// </summary>
+        private PdfiumDocument OpenUserPdfDocument(
+            string path,
+            string displayName,
+            out bool openedWithPassword,
+            out bool cancelledByUser)
+        {
+            openedWithPassword = false;
+            cancelledByUser = false;
+
+            string password = null;
+            var failedAttempts = 0;
+
+            for (var attempt = 0; attempt < MaximumPasswordAttempts; attempt++)
+            {
+                try
+                {
+                    var document = PdfDocumentOpenService.Load(path, password);
+                    openedWithPassword = !string.IsNullOrEmpty(password);
+                    password = null;
+                    return document;
+                }
+                catch (Exception ex)
+                {
+                    password = null;
+                    if (!PdfDocumentOpenService.IsPasswordRequired(ex))
+                    {
+                        throw;
+                    }
+
+                    var restoreWaitCursor = UseWaitCursor;
+                    UseWaitCursor = false;
+                    try
+                    {
+                        using (var prompt = new PdfPasswordPromptForm(
+                            displayName,
+                            failedAttempts > 0))
+                        {
+                            if (prompt.ShowDialog(this) != DialogResult.OK)
+                            {
+                                cancelledByUser = true;
+                                return null;
+                            }
+
+                            password = prompt.Password;
+                        }
+                    }
+                    finally
+                    {
+                        UseWaitCursor = restoreWaitCursor;
+                    }
+
+                    failedAttempts++;
+                }
+            }
+
+            AppLog.Write(
+                "Se agotaron los intentos de contraseña al abrir: " + path);
+            cancelledByUser = true;
+            return null;
+        }
+
         private bool EnsureWorkspaceLoaded(PdfWorkspace workspace)
         {
             if (workspace == null || workspace.IsDisposed)
@@ -3950,9 +4117,35 @@ namespace FirmaAutomatica
 
             try
             {
-                nextDocument = PdfiumDocument.Load(this, workspace.ContentPath);
+                bool openedWithPassword;
+                bool cancelledByUser;
+                nextDocument = OpenUserPdfDocument(
+                    workspace.ContentPath,
+                    workspace.DisplayName,
+                    out openedWithPassword,
+                    out cancelledByUser);
+
+                if (nextDocument == null)
+                {
+                    MarkWorkspaceLoadFailure(workspace, cancelledByUser);
+                    AppLog.Write(
+                        "Apertura cancelada en un PDF protegido: " +
+                        workspace.Path);
+                    return false;
+                }
+
+                // El diálogo de contraseña bombea mensajes: la pestaña puede
+                // haberse cerrado mientras estaba abierto.
+                if (workspace.IsDisposed)
+                {
+                    nextDocument.Dispose();
+                    nextDocument = null;
+                    return false;
+                }
+
                 workspace.Document = nextDocument;
                 nextDocument = null;
+                workspace.IsPasswordProtected = openedWithPassword;
 
                 workspace.Viewer.Document = workspace.Document;
                 workspace.Viewer.DefaultDocumentName = workspace.DisplayName;
@@ -3965,24 +4158,23 @@ namespace FirmaAutomatica
                 AppLog.Write(
                     "PDF abierto en pestaña: " + workspace.Path +
                     ". Contenido=" + workspace.ContentPath +
-                    ". Paginas=" + workspace.Document.PageCount);
+                    ". Paginas=" + workspace.Document.PageCount +
+                    ". Protegido=" + (openedWithPassword ? "si" : "no"));
                 return true;
             }
             catch (Exception ex)
             {
-                workspace.LoadFailed = true;
-                workspace.TabPage.Text = "! " + workspace.DisplayName;
+                MarkWorkspaceLoadFailure(workspace, false);
                 AppLog.Write(
                     "No se pudo abrir el PDF en una pestaña: " +
                     workspace.Path + ". " + ex);
 
-                MessageBox.Show(
-                    this,
-                    "No se pudo abrir " + workspace.DisplayName +
-                    ".\r\n\r\n" + ex.Message,
+                ShowPdfProblem(
                     "PDF Ligero",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                    "No se pudo abrir " + workspace.DisplayName + ".",
+                    null,
+                    ex,
+                    workspace.ContentPath);
                 return false;
             }
             finally
@@ -4323,6 +4515,12 @@ namespace FirmaAutomatica
             finally
             {
                 activatingWorkspace = false;
+
+                // El refresco de dentro del try se calcula con la activación aún
+                // en curso, y varias herramientas (medición) exigen que no lo
+                // esté. Sin este segundo refresco quedaban en gris hasta que
+                // otra cosa recalculaba el estado.
+                RefreshToolAvailability();
             }
         }
 
@@ -5709,7 +5907,8 @@ namespace FirmaAutomatica
                 workspace.Document == null ||
                 workspace.Document.PageCount < 1 ||
                 workspace.EditSession == null ||
-                workspace.EditHistoryFaulted)
+                workspace.EditHistoryFaulted ||
+                workspace.IsPasswordProtected)
             {
                 return false;
             }
@@ -6313,7 +6512,8 @@ namespace FirmaAutomatica
                 workspace.Document == null ||
                 workspace.Document.PageCount < 1 ||
                 workspace.EditSession == null ||
-                workspace.EditHistoryFaulted)
+                workspace.EditHistoryFaulted ||
+                workspace.IsPasswordProtected)
             {
                 System.Media.SystemSounds.Beep.Play();
                 return;
@@ -7082,6 +7282,7 @@ namespace FirmaAutomatica
                 workspace.IsDisposed ||
                 !workspace.IsLoaded ||
                 workspace.EditHistoryFaulted ||
+                workspace.IsPasswordProtected ||
                 e == null)
             {
                 return;
@@ -8059,6 +8260,16 @@ namespace FirmaAutomatica
             var measurementActive = IsMeasurementActive;
             var textEditSelectionActive = IsTextEditSelectionActive;
 
+            // Un PDF abierto con contraseña es de solo lectura: los servicios de
+            // edición abren su propio PdfReader y no conocen esa contraseña, así
+            // que fallarían uno a uno. Vale más apagarlos y explicarlo.
+            var protectedDocument = hasLoadedDocument &&
+                activeWorkspace.IsPasswordProtected;
+            var canEditDocument = hasLoadedDocument &&
+                !IsPageStructureOperationInProgress &&
+                !activeWorkspace.EditHistoryFaulted &&
+                !protectedDocument;
+
             searchToolButton.Enabled =
                 hasLoadedDocument &&
                 !comparisonActive &&
@@ -8066,10 +8277,7 @@ namespace FirmaAutomatica
                 !textEditSelectionActive &&
                 !contentEditInProgress;
             contentEditToolButton.Enabled =
-                textEditSelectionActive ||
-                (hasLoadedDocument &&
-                 !IsPageStructureOperationInProgress &&
-                 !activeWorkspace.EditHistoryFaulted);
+                textEditSelectionActive || canEditDocument;
             contentEditToolButton.Text =
                 textEditSelectionActive ? "\u00D7" : "T";
             contentEditToolButton.AccessibleName =
@@ -8102,10 +8310,7 @@ namespace FirmaAutomatica
             }
             else
             {
-                ocrToolButton.Enabled =
-                    hasLoadedDocument &&
-                    !IsPageStructureOperationInProgress &&
-                    !activeWorkspace.EditHistoryFaulted;
+                ocrToolButton.Enabled = canEditDocument;
                 ocrToolButton.Text = "OCR";
                 ocrToolButton.AccessibleName =
                     "OCR, orientación y enderezado";
@@ -8119,11 +8324,15 @@ namespace FirmaAutomatica
             }
             signToolButton.Enabled = !IsPageStructureOperationInProgress &&
                 activeWorkspace != null &&
+                !activeWorkspace.IsPasswordProtected &&
                 File.Exists(activeWorkspace.ContentPath);
             mergeToolButton.Enabled = !IsPageStructureOperationInProgress;
+            // La comparación reabre ContentPath en un hilo de fondo con su propia
+            // sesión de PDFium, que tampoco conoce la contraseña.
             compareToolButton.Enabled =
                 comparisonActive ||
                 (hasLoadedDocument &&
+                 !protectedDocument &&
                  !measurementActive &&
                  !pageInsertInProgress &&
                  !pageOrganizationInProgress &&
@@ -8210,19 +8419,9 @@ namespace FirmaAutomatica
             ocrMenuItem.Text = ocrInProgress
                 ? "Cancelar OCR…"
                 : "OCR y enderezado…";
-            ocrMenuItem.Enabled =
-                ocrInProgress ||
-                (hasLoadedDocument &&
-                 !IsPageStructureOperationInProgress &&
-                 !activeWorkspace.EditHistoryFaulted);
-            organizePagesMenuItem.Enabled =
-                hasLoadedDocument &&
-                !IsPageStructureOperationInProgress &&
-                !activeWorkspace.EditHistoryFaulted;
-            editBookmarksMenuItem.Enabled =
-                hasLoadedDocument &&
-                !IsPageStructureOperationInProgress &&
-                !activeWorkspace.EditHistoryFaulted;
+            ocrMenuItem.Enabled = ocrInProgress || canEditDocument;
+            organizePagesMenuItem.Enabled = canEditDocument;
+            editBookmarksMenuItem.Enabled = canEditDocument;
             compareMenuItem.Text = comparisonActive
                 ? "Cerrar comparación              Esc"
                 : "Comparar revisiones…      Ctrl+Mayús+C";
@@ -8233,13 +8432,25 @@ namespace FirmaAutomatica
                 : "Medir plano…                  Ctrl+Mayús+M";
             measureMenuItem.Enabled =
                 measurementActive || measureToolButton.Enabled;
-            editTextMenuItem.Enabled =
-                hasLoadedDocument &&
-                !IsPageStructureOperationInProgress &&
-                !activeWorkspace.EditHistoryFaulted;
+            editTextMenuItem.Enabled = canEditDocument;
             fillFormMenuItem.Enabled = editTextMenuItem.Enabled;
             moreEditTextMenuItem.Enabled = editTextMenuItem.Enabled;
             moreFillFormMenuItem.Enabled = fillFormMenuItem.Enabled;
+
+            // WinForms no muestra el tooltip de un control deshabilitado, así que
+            // la explicación va en el contenedor, que sí recibe el ratón, y en los
+            // elementos de menú, que lo gestiona su ToolStrip.
+            var protectedHint = protectedDocument
+                ? "PDF protegido con contraseña: solo lectura.\r\n" +
+                  "Se puede ver, buscar, imprimir y guardar una copia."
+                : null;
+            toolTip.SetToolTip(toolRail, protectedHint);
+            ocrMenuItem.ToolTipText = protectedHint;
+            organizePagesMenuItem.ToolTipText = protectedHint;
+            editBookmarksMenuItem.ToolTipText = protectedHint;
+            editTextMenuItem.ToolTipText = protectedHint;
+            fillFormMenuItem.ToolTipText = protectedHint;
+            compareMenuItem.ToolTipText = protectedHint;
 
             if (comparisonActive)
             {
@@ -8255,7 +8466,8 @@ namespace FirmaAutomatica
                 {
                     workspace.Thumbnails.PageOperationsEnabled =
                         !IsPageStructureOperationInProgress &&
-                        !workspace.EditHistoryFaulted;
+                        !workspace.EditHistoryFaulted &&
+                        !workspace.IsPasswordProtected;
                 }
 
                 if (!workspace.IsDisposed &&
@@ -8264,7 +8476,8 @@ namespace FirmaAutomatica
                     workspace.EditBookmarksButton.Enabled =
                         workspace.IsLoaded &&
                         !IsPageStructureOperationInProgress &&
-                        !workspace.EditHistoryFaulted;
+                        !workspace.EditHistoryFaulted &&
+                        !workspace.IsPasswordProtected;
                 }
             }
         }
@@ -9048,6 +9261,21 @@ namespace FirmaAutomatica
             public bool DeleteRecoveryOnClose;
             public bool EditHistoryFaulted;
             public bool FaultedChangesSaved;
+
+            /// <summary>
+            /// El documento se abrió con una contraseña de apertura, de modo que
+            /// la pestaña es de solo lectura: los servicios de edición abren su
+            /// propio PdfReader y no conocen esa contraseña. Nunca se guarda la
+            /// contraseña, solo el hecho de que hizo falta.
+            /// </summary>
+            public bool IsPasswordProtected;
+
+            /// <summary>
+            /// El usuario cerró el diálogo de contraseña sin escribirla. Permite
+            /// volver a preguntar si abre el mismo archivo otra vez, pero no al
+            /// cambiar de pestaña.
+            /// </summary>
+            public bool PasswordPromptCancelled;
         }
     }
 }
