@@ -1,0 +1,29 @@
+# Salidas de compilacion y ejecuciones de QA
+firma automática/build/
+firma automática/packages/
+firma automática/runtime/
+tmp/
+.qa-p1/
+__pycache__/
+
+# Binarios: se regeneran con build.ps1
+*.exe
+*.dll
+*.pyc
+*.ico
+
+# Material sensible.
+# firma_limpia.png es una firma manuscrita real y appearances_from_acrobat.pdf
+# contiene su apariencia extraida de Acrobat. Cada instalacion aporta la suya
+# en "firma automática/build/output/"; sin ellas la firma visible usa su
+# camino de reserva.
+firma_limpia.png
+appearances_from_acrobat.pdf
+*.pfx
+*.p12
+*.cer
+
+# Logs y temporales del sistema
+*.log
+Thumbs.db
+desktop.ini
