@@ -29,6 +29,7 @@ $references = @(
 $referenceArgs = $references |
     ForEach-Object { "/reference:$_" }
 $sources = @(
+    (Join-Path $sourceRoot "PdfProblemDiagnostics.cs"),
     (Join-Path $sourceRoot "PdfBookmarkService.cs"),
     (Join-Path $sourceRoot "PdfEditSession.cs"),
     (Join-Path $sourceRoot "PdfMergeService.cs"),

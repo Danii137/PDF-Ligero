@@ -15,10 +15,12 @@ $references = @(
     "System.Drawing.dll",
     "System.Windows.Forms.dll",
     (Join-Path $packages "iTextSharp.5.5.13.3\lib\itextsharp.dll"),
-    (Join-Path $packages "BouncyCastle.1.8.9\lib\BouncyCastle.Crypto.dll")
+    (Join-Path $packages "BouncyCastle.1.8.9\lib\BouncyCastle.Crypto.dll"),
+    (Join-Path $packages "PdfiumViewer.2.13.0.0\lib\net20\PdfiumViewer.dll")
 )
 $sources = @(
     (Join-Path $root "AppBranding.cs"),
+    (Join-Path $root "PdfProblemDiagnostics.cs"),
     (Join-Path $root "PdfBookmarkService.cs"),
     (Join-Path $root "PdfBookmarkEditorForm.cs"),
     (Join-Path $validationDir "BookmarkUiQa.cs")

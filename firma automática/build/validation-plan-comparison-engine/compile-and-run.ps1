@@ -26,6 +26,7 @@ $exe = Join-Path $output "PlanComparisonEngineQa.exe"
     /reference:System.Drawing.dll `
     "/reference:$itext" `
     "/reference:$pdfiumViewer" `
+    (Join-Path $root "PdfDocumentOpenService.cs") `
     (Join-Path $root "PdfPlanComparisonService.cs") `
     (Join-Path $validation "PlanComparisonEngineQa.cs")
 if ($LASTEXITCODE -ne 0) {

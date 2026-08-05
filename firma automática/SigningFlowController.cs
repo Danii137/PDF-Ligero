@@ -39,7 +39,7 @@ namespace FirmaAutomatica
                 AppLog.Write("Todos los PDFs se han omitido por archivos _f existentes.");
                 MessageBox.Show(
                     "No se ha firmado ningun PDF porque ya existian las copias con sufijo _f y has elegido conservarlas.",
-                    "Firma automatica",
+                    "Firmar PDF",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
                 return;
@@ -96,7 +96,7 @@ namespace FirmaAutomatica
                     fileResolution.SkippedExistingCount);
             }
 
-            MessageBox.Show(successMessage, "Firma automatica", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(successMessage, "Firmar PDF", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         public void Dispose()
@@ -166,7 +166,7 @@ namespace FirmaAutomatica
 
             var result = MessageBox.Show(
                 message,
-                "Firma automatica",
+                "Firmar PDF",
                 MessageBoxButtons.YesNoCancel,
                 MessageBoxIcon.Question);
 

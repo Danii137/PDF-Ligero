@@ -19,6 +19,7 @@ $references = @(
     (Join-Path $packages "PdfiumViewer.2.13.0.0\lib\net20\PdfiumViewer.dll")
 )
 $sources = @(
+    (Join-Path $root "PdfDocumentOpenService.cs"),
     (Join-Path $root "PdfPlanComparisonService.cs"),
     (Join-Path $root "PdfPlanComparisonSurface.cs"),
     (Join-Path $validationDir "PdfPlanComparisonSurfaceQa.cs")

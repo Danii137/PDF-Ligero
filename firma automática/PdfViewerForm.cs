@@ -993,13 +993,12 @@ namespace FirmaAutomatica
                     AppLog.Write(
                         "No se pudo recuperar " + candidate.DisplayName +
                         ": " + ex);
-                    MessageBox.Show(
-                        this,
-                        "No se pudo recuperar \"" + candidate.DisplayName +
-                        "\".\r\n\r\n" + ex.GetBaseException().Message,
+                    ShowPdfProblem(
                         "Recuperar edición",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
+                        "No se pudo recuperar \"" + candidate.DisplayName + "\".",
+                        null,
+                        ex,
+                        candidate.SourcePath);
                 }
             }
         }
@@ -1146,12 +1145,12 @@ namespace FirmaAutomatica
             catch (Exception ex)
             {
                 AppLog.Write("Error firmando desde el visor: " + ex);
-                MessageBox.Show(
-                    this,
-                    ex.Message,
-                    "Error en la firma",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                ShowPdfProblem(
+                    "Firmar PDF",
+                    "No se pudo firmar el PDF.",
+                    "El PDF original no se ha modificado.",
+                    ex,
+                    activeWorkspace == null ? null : activeWorkspace.ContentPath);
             }
         }
 
@@ -1251,14 +1250,12 @@ namespace FirmaAutomatica
                 RefreshToolAvailability();
                 AppLog.Write(
                     "No se pudo iniciar la medición del plano: " + ex);
-                MessageBox.Show(
-                    this,
-                    "No se pudo iniciar la medición.\r\n\r\n" +
-                    ex.GetBaseException().Message +
-                    "\r\n\r\nEl PDF original no se ha modificado.",
+                ShowPdfProblem(
                     "Medir plano",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                    "No se pudo iniciar la medición.",
+                    "El PDF original no se ha modificado.",
+                    ex,
+                    workspace == null ? null : workspace.ContentPath);
             }
         }
 
@@ -1607,14 +1604,12 @@ namespace FirmaAutomatica
 
                 AppLog.Write(
                     "No se pudo aplicar la edición de texto: " + ex);
-                MessageBox.Show(
-                    this,
-                    "No se pudo aplicar la edición de texto.\r\n\r\n" +
-                    ex.GetBaseException().Message +
-                    "\r\n\r\nEl PDF original permanece intacto.",
+                ShowPdfProblem(
                     "Editar texto",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
+                    "No se pudo aplicar la edición de texto.",
+                    "El PDF original no se ha modificado.",
+                    ex,
+                    sourcePath);
             }
             finally
             {
@@ -1757,14 +1752,12 @@ namespace FirmaAutomatica
                 RefreshToolAvailability();
                 AppLog.Write(
                     "No se pudo iniciar la comparación de planos: " + ex);
-                MessageBox.Show(
-                    this,
-                    "No se pudo iniciar la comparación.\r\n\r\n" +
-                    ex.GetBaseException().Message +
-                    "\r\n\r\nLos PDF originales no se han modificado.",
+                ShowPdfProblem(
                     "Comparar revisiones",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                    "No se pudo iniciar la comparación.",
+                    "Los PDF originales no se han modificado.",
+                    ex,
+                    workspace == null ? null : workspace.ContentPath);
             }
         }
 
@@ -2051,14 +2044,12 @@ namespace FirmaAutomatica
                 RefreshToolAvailability();
                 AppLog.Write(
                     "No se pudo iniciar la edición de texto: " + ex);
-                MessageBox.Show(
-                    this,
-                    "No se pudo iniciar la edición de texto.\r\n\r\n" +
-                    ex.GetBaseException().Message +
-                    "\r\n\r\nEl PDF original no se ha modificado.",
+                ShowPdfProblem(
                     "Editar texto",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                    "No se pudo iniciar la edición de texto.",
+                    "El PDF original no se ha modificado.",
+                    ex,
+                    workspace == null ? null : workspace.ContentPath);
             }
         }
 
@@ -2220,14 +2211,12 @@ namespace FirmaAutomatica
 
                 AppLog.Write(
                     "No se pudo rellenar el formulario PDF: " + ex);
-                MessageBox.Show(
-                    this,
-                    "No se pudo rellenar el formulario.\r\n\r\n" +
-                    ex.GetBaseException().Message +
-                    "\r\n\r\nEl PDF original permanece intacto.",
+                ShowPdfProblem(
                     "Rellenar formulario",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
+                    "No se pudo rellenar el formulario.",
+                    "El PDF original no se ha modificado.",
+                    ex,
+                    sourcePath);
             }
             finally
             {
@@ -2346,12 +2335,12 @@ namespace FirmaAutomatica
                 catch (Exception ex)
                 {
                     AppLog.Write("No se pudo guardar una copia del PDF: " + ex);
-                    MessageBox.Show(
-                        this,
-                        "No se pudo guardar la copia.\r\n\r\n" + ex.Message,
-                        "PDF Ligero",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error);
+                    ShowPdfProblem(
+                        "Guardar una copia",
+                        "No se pudo guardar la copia.",
+                        "El PDF original no se ha modificado.",
+                        ex,
+                        targetPath);
                     return false;
                 }
                 finally
@@ -2592,12 +2581,12 @@ namespace FirmaAutomatica
             catch (Exception ex)
             {
                 AppLog.Write("No se pudo imprimir el PDF: " + ex);
-                MessageBox.Show(
-                    this,
-                    "No se pudo imprimir.\r\n\r\n" + ex.Message,
-                    "PDF Ligero",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                ShowPdfProblem(
+                    "Imprimir",
+                    "No se pudo imprimir.",
+                    null,
+                    ex,
+                    activeWorkspace == null ? null : activeWorkspace.ContentPath);
             }
         }
 
@@ -2881,14 +2870,12 @@ namespace FirmaAutomatica
                 AppLog.Write(
                     "No se pudo editar la estructura de marcadores: " +
                     ex);
-                MessageBox.Show(
-                    this,
-                    "No se pudieron aplicar los marcadores.\r\n\r\n" +
-                    ex.GetBaseException().Message +
-                    "\r\n\r\nEl PDF original permanece intacto.",
+                ShowPdfProblem(
                     "Editar marcadores",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
+                    "No se pudieron aplicar los marcadores.",
+                    "El PDF original no se ha modificado.",
+                    ex,
+                    sourcePath);
             }
             finally
             {
@@ -3447,14 +3434,12 @@ namespace FirmaAutomatica
         private void ShowEditHistoryError(Exception error)
         {
             AppLog.Write("No se pudo actualizar el historial de edicion: " + error);
-            MessageBox.Show(
-                this,
-                "No se pudo actualizar el historial de edición.\r\n\r\n" +
-                error.GetBaseException().Message +
-                "\r\n\r\nEl PDF abierto no se ha modificado.",
+            ShowPdfProblem(
                 "Deshacer o rehacer",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
+                "No se pudo actualizar el historial de edición.",
+                "El PDF original no se ha modificado.",
+                error,
+                activeWorkspace == null ? null : activeWorkspace.ContentPath);
         }
 
         private bool ApplyRevisionToWorkspace(
@@ -3638,14 +3623,17 @@ namespace FirmaAutomatica
 
                 AppLog.Write(
                     "No se pudo cargar una revision del PDF: " + ex);
+                var failureCause = PdfProblemDiagnostics.Describe(
+                    ex,
+                    revisionPath);
                 var failureMessage = rollbackFailed
                     ? "No se pudo completar el cambio ni restaurar la " +
                       "vista anterior con seguridad.\r\n\r\nEl historial " +
                       "se ha bloqueado y las revisiones se conservarán " +
                       "para recuperación.\r\n\r\n" +
-                      ex.GetBaseException().Message
+                      failureCause
                     : "No se pudo abrir esa revisión.\r\n\r\n" +
-                      ex.GetBaseException().Message +
+                      failureCause +
                       "\r\n\r\nLa revisión anterior sigue abierta.";
                 if (!showFailureDialog)
                 {
@@ -6486,17 +6474,12 @@ namespace FirmaAutomatica
 
         private void ShowPageOrganizationError(Exception error)
         {
-            var message = error == null
-                ? "Error desconocido."
-                : error.GetBaseException().Message;
-            MessageBox.Show(
-                this,
-                "No se pudieron organizar las páginas.\r\n\r\n" +
-                message +
-                "\r\n\r\nEl PDF original no se ha modificado.",
+            ShowPdfProblem(
                 "Organizar páginas",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+                "No se pudieron organizar las páginas.",
+                "El PDF original no se ha modificado.",
+                error,
+                activeWorkspace == null ? null : activeWorkspace.ContentPath);
         }
 
         private void OcrToolButton_Click(object sender, EventArgs e)
@@ -7261,17 +7244,12 @@ namespace FirmaAutomatica
 
         private void ShowOcrError(Exception error)
         {
-            var message = error == null
-                ? "Error desconocido."
-                : error.GetBaseException().Message;
-            MessageBox.Show(
-                this,
-                "No se pudo completar el OCR.\r\n\r\n" +
-                message +
-                "\r\n\r\nEl PDF original no se ha modificado.",
+            ShowPdfProblem(
                 "OCR y enderezado",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+                "No se pudo completar el OCR.",
+                "El PDF original no se ha modificado.",
+                error,
+                activeWorkspace == null ? null : activeWorkspace.ContentPath);
         }
 
         private void BeginPdfPageInsert(
@@ -7846,16 +7824,12 @@ namespace FirmaAutomatica
 
         private void ShowPageInsertError(Exception error)
         {
-            var message = error == null
-                ? "Error desconocido."
-                : error.GetBaseException().Message;
-            MessageBox.Show(
-                this,
-                "No se pudieron insertar las páginas.\r\n\r\n" + message +
-                "\r\n\r\nLos PDF originales no se han modificado.",
+            ShowPdfProblem(
                 "Insertar PDF",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+                "No se pudieron insertar las páginas.",
+                "Los PDF originales no se han modificado.",
+                error,
+                activeWorkspace == null ? null : activeWorkspace.ContentPath);
         }
 
         private void PdfDragEnter(object sender, DragEventArgs e)

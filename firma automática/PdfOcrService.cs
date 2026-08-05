@@ -554,7 +554,7 @@ namespace FirmaAutomatica
             var totalSteps = Math.Max(1, candidates.Count);
             if (candidates.Count > 0)
             {
-                using (var document = PdfiumDocument.Load(source))
+                using (var document = PdfDocumentOpenService.Load(source))
                 {
                     for (var index = 0;
                         index < candidates.Count;
@@ -728,7 +728,7 @@ namespace FirmaAutomatica
             }
 
             ValidateInstructionAngles(instruction);
-            using (var document = PdfiumDocument.Load(source))
+            using (var document = PdfDocumentOpenService.Load(source))
             {
                 if (instruction.PageNumber < 1 ||
                     instruction.PageNumber > document.PageCount)
@@ -902,7 +902,7 @@ namespace FirmaAutomatica
                     currentPdfPath = deskewedPath;
                 }
 
-                using (var document = PdfiumDocument.Load(currentPdfPath))
+                using (var document = PdfDocumentOpenService.Load(currentPdfPath))
                 {
                     for (var index = 0;
                         index < pagesToProcess.Count;
@@ -2362,7 +2362,7 @@ namespace FirmaAutomatica
                 }
             }
 
-            using (var document = PdfiumDocument.Load(path))
+            using (var document = PdfDocumentOpenService.Load(path))
             {
                 if (document.PageCount != analysis.PageCount)
                 {

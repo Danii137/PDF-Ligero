@@ -51,10 +51,22 @@ namespace FirmaAutomatica
                             !string.Equals(argument, "--open", StringComparison.OrdinalIgnoreCase) &&
                             !string.Equals(argument, "--view", StringComparison.OrdinalIgnoreCase))
                         .ToList();
-                    var initialPdfs = CliArgumentParser.Parse(openArguments);
+                    List<string> rejectedPdfs;
+                    var initialPdfs = CliArgumentParser.Parse(
+                        openArguments,
+                        out rejectedPdfs);
                     AppLog.Write(
                         "Iniciando visor. PDFs iniciales=" +
                         string.Join(" | ", initialPdfs));
+
+                    // Abrir el visor sin argumentos es normal y muestra la
+                    // ventana vacia. Pedir archivos y que no quede ninguno, no.
+                    if (initialPdfs.Count == 0 && openArguments.Count > 0)
+                    {
+                        CliArgumentParser.ReportRejectedSelection(
+                            rejectedPdfs,
+                            "PDF Ligero");
+                    }
 
                     ViewerInstanceBroker viewerBroker;
                     if (!ViewerInstanceBroker.TryStart(initialPdfs, out viewerBroker))
@@ -126,12 +138,34 @@ namespace FirmaAutomatica
             catch (Exception ex)
             {
                 AppLog.Write("Excepcion: " + ex);
-                MessageBox.Show(
-                    ex.Message,
-                    "Error en PDF Ligero",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                ShowStartupProblem(ex, "No se pudo completar la operación.");
             }
+        }
+
+        /// <summary>
+        /// Red de seguridad de los tres modos de arranque. Antes mostraba el
+        /// mensaje crudo de la excepcion, que en un fallo de PDF llegaba en
+        /// ingles y sin ninguna frase que explicara que habia pasado.
+        /// </summary>
+        private static void ShowStartupProblem(Exception error, string headline)
+        {
+            var report = PdfProblemDiagnostics.Analyze(error, null);
+            var message = headline +
+                Environment.NewLine + Environment.NewLine +
+                report.Description;
+            if (!string.IsNullOrWhiteSpace(report.Advice))
+            {
+                message += Environment.NewLine + Environment.NewLine +
+                    report.Advice;
+            }
+
+            MessageBox.Show(
+                message,
+                "PDF Ligero",
+                MessageBoxButtons.OK,
+                report.IsPolicyBlock
+                    ? MessageBoxIcon.Warning
+                    : MessageBoxIcon.Error);
         }
 
         internal static void RunMergeFiles(IReadOnlyList<string> pdfFiles)
@@ -167,11 +201,9 @@ namespace FirmaAutomatica
             catch (Exception ex)
             {
                 AppLog.Write("Excepcion durante la combinacion: " + ex);
-                MessageBox.Show(
-                    ex.Message,
-                    "Error al combinar",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                ShowStartupProblem(
+                    ex,
+                    "No se pudieron combinar los PDFs.");
             }
         }
 
@@ -229,11 +261,7 @@ namespace FirmaAutomatica
             catch (Exception ex)
             {
                 AppLog.Write("Excepcion durante la firma: " + ex);
-                MessageBox.Show(
-                    ex.Message,
-                    "Error en la firma",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                ShowStartupProblem(ex, "No se pudo firmar.");
             }
         }
     }
@@ -347,13 +375,85 @@ namespace FirmaAutomatica
     {
         public static List<string> Parse(IEnumerable<string> args)
         {
-            return args
-                .Where(arg => !string.IsNullOrWhiteSpace(arg))
-                .Select(arg => arg.Trim().Trim('"'))
-                .Where(File.Exists)
-                .Where(path => string.Equals(Path.GetExtension(path), ".pdf", StringComparison.OrdinalIgnoreCase))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            List<string> rejected;
+            return Parse(args, out rejected);
+        }
+
+        /// <summary>
+        /// Devuelve tambien lo descartado y por que. Antes se descartaba en
+        /// silencio: si el usuario seleccionaba un archivo que ya no existia o que
+        /// no era PDF, la aplicacion no decia nada.
+        /// </summary>
+        public static List<string> Parse(
+            IEnumerable<string> args,
+            out List<string> rejected)
+        {
+            var accepted = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            rejected = new List<string>();
+
+            foreach (var rawArgument in args ?? Enumerable.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(rawArgument))
+                {
+                    continue;
+                }
+
+                var path = rawArgument.Trim().Trim('"');
+                if (!string.Equals(
+                        Path.GetExtension(path),
+                        ".pdf",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    rejected.Add(
+                        Path.GetFileName(path) + ": " +
+                        PdfProblemDiagnostics.DescribeKind(PdfProblemKind.NotPdf));
+                    continue;
+                }
+
+                if (!File.Exists(path))
+                {
+                    rejected.Add(
+                        Path.GetFileName(path) + ": " +
+                        PdfProblemDiagnostics.DescribeKind(
+                            PdfProblemKind.FileMissing));
+                    continue;
+                }
+
+                if (seen.Add(path))
+                {
+                    accepted.Add(path);
+                }
+            }
+
+            return accepted;
+        }
+
+        /// <summary>
+        /// Explica lo descartado solo cuando el usuario pidio abrir algo y no
+        /// quedo nada, que es el unico caso en que el silencio confunde.
+        /// </summary>
+        public static void ReportRejectedSelection(
+            IReadOnlyList<string> rejected,
+            string title)
+        {
+            if (rejected == null || rejected.Count == 0)
+            {
+                return;
+            }
+
+            var detail = string.Join(
+                Environment.NewLine,
+                rejected.Take(6).ToArray());
+            AppLog.Write(
+                "Seleccion descartada por completo: " +
+                string.Join(" | ", rejected.ToArray()));
+            MessageBox.Show(
+                "No se pudo abrir nada de lo seleccionado." +
+                Environment.NewLine + Environment.NewLine + detail,
+                title,
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
         }
     }
 

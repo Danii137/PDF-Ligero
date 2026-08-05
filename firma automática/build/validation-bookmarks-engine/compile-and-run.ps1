@@ -12,6 +12,7 @@ New-Item -ItemType Directory -Force -Path $run | Out-Null
 $csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 $itext = Join-Path $packages "iTextSharp.5.5.13.3\lib\itextsharp.dll"
 $bouncy = Join-Path $packages "BouncyCastle.1.8.9\lib\BouncyCastle.Crypto.dll"
+$pdfium = Join-Path $packages "PdfiumViewer.2.13.0.0\lib\net20\PdfiumViewer.dll"
 $exe = Join-Path $output "BookmarkEngineQa.exe"
 & $csc `
     /nologo `
@@ -23,6 +24,8 @@ $exe = Join-Path $output "BookmarkEngineQa.exe"
     /reference:System.Core.dll `
     "/reference:$itext" `
     "/reference:$bouncy" `
+    "/reference:$pdfium" `
+    (Join-Path $root "PdfProblemDiagnostics.cs") `
     (Join-Path $root "PdfBookmarkService.cs") `
     (Join-Path $validation "BookmarkEngineQa.cs")
 if ($LASTEXITCODE -ne 0) {

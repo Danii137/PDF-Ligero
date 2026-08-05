@@ -23,6 +23,7 @@ $references = @(
 $sources = @(
     (Join-Path $root "PdfAtomicFileService.cs"),
     (Join-Path $root "PdfPageOrganizerService.cs"),
+    (Join-Path $root "PdfDocumentOpenService.cs"),
     (Join-Path $root "PdfOcrService.cs"),
     (Join-Path $validationDir "OcrStressQa.cs")
 )

@@ -471,9 +471,9 @@ namespace FirmaAutomatica
             PdfiumDocument revised = null;
             try
             {
-                baseline = PdfiumDocument.Load(baselinePath);
+                baseline = PdfDocumentOpenService.Load(baselinePath);
                 cancellationToken.ThrowIfCancellationRequested();
-                revised = PdfiumDocument.Load(revisedPath);
+                revised = PdfDocumentOpenService.Load(revisedPath);
                 cancellationToken.ThrowIfCancellationRequested();
                 if (baseline.PageCount < 1)
                 {

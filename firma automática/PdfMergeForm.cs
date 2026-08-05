@@ -357,12 +357,22 @@ namespace FirmaAutomatica
                 progressBar.Visible = false;
                 statusLabel.Text = "No se ha creado ningun archivo.";
                 AppLog.Write("Fallo combinando PDFs: " + e.Error);
+                var report = PdfProblemDiagnostics.Analyze(e.Error, null);
+                var message = "No se pudieron combinar los PDFs." +
+                    "\r\n\r\n" + report.Description;
+                if (!string.IsNullOrWhiteSpace(report.Advice))
+                {
+                    message += "\r\n\r\n" + report.Advice;
+                }
+
                 MessageBox.Show(
                     this,
-                    e.Error.Message,
-                    "No se pudieron combinar los PDFs",
+                    message + "\r\n\r\nLos PDF originales no se han modificado.",
+                    "Combinar PDFs",
                     MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                    report.IsPolicyBlock
+                        ? MessageBoxIcon.Warning
+                        : MessageBoxIcon.Error);
                 return;
             }
 
@@ -412,9 +422,21 @@ namespace FirmaAutomatica
 
             foreach (var rawPath in paths)
             {
-                if (string.IsNullOrWhiteSpace(rawPath) ||
-                    !string.Equals(Path.GetExtension(rawPath), ".pdf", StringComparison.OrdinalIgnoreCase))
+                if (string.IsNullOrWhiteSpace(rawPath))
                 {
+                    continue;
+                }
+
+                if (!string.Equals(
+                        Path.GetExtension(rawPath),
+                        ".pdf",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    // Antes se descartaba en silencio y el usuario no entendia
+                    // por que faltaba su archivo en la lista.
+                    errors.Add(
+                        Path.GetFileName(rawPath) + ": " +
+                        PdfProblemDiagnostics.DescribeKind(PdfProblemKind.NotPdf));
                     continue;
                 }
 
@@ -427,7 +449,16 @@ namespace FirmaAutomatica
                 try
                 {
                     var path = Path.GetFullPath(rawPath);
-                    if (!File.Exists(path) || !existingPaths.Add(path))
+                    if (!File.Exists(path))
+                    {
+                        errors.Add(
+                            Path.GetFileName(rawPath) + ": " +
+                            PdfProblemDiagnostics.DescribeKind(
+                                PdfProblemKind.FileMissing));
+                        continue;
+                    }
+
+                    if (!existingPaths.Add(path))
                     {
                         continue;
                     }
@@ -443,7 +474,9 @@ namespace FirmaAutomatica
                 }
                 catch (Exception ex)
                 {
-                    errors.Add(Path.GetFileName(rawPath) + ": " + ex.Message);
+                    errors.Add(
+                        Path.GetFileName(rawPath) + ": " +
+                        PdfProblemDiagnostics.Describe(ex, rawPath));
                 }
             }
 

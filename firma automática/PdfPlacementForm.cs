@@ -235,7 +235,7 @@ namespace FirmaAutomatica
                 .ToDictionary(group => group.Key, group => (IReadOnlyList<DetectedSignatureField>)group.ToList());
 
             pagesCanvas.SuspendLayout();
-            using (var document = PdfiumDocument.Load(pdfPath))
+            using (var document = PdfDocumentOpenService.Load(pdfPath))
             {
                 for (var i = 0; i < document.PageCount; i++)
                 {
@@ -324,7 +324,7 @@ namespace FirmaAutomatica
         {
             if (selectedSurface == null || !selectedSurface.HasSelection)
             {
-                MessageBox.Show(this, "Selecciona un campo de firma detectado o dibuja primero el rectangulo de la firma.", "Firma automatica", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, "Selecciona un campo de firma detectado o dibuja primero el rectangulo de la firma.", "Firmar PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -418,7 +418,7 @@ namespace FirmaAutomatica
         {
             try
             {
-                using (var document = PdfiumDocument.Load(pdfPath))
+                using (var document = PdfDocumentOpenService.Load(pdfPath))
                 {
                     foreach (var pageIndex in BuildRenderOrder(pageSurfaces.Count))
                     {

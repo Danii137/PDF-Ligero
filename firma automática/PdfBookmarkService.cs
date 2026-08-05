@@ -592,6 +592,12 @@ namespace FirmaAutomatica
             "El PDF cambio desde que se abrio el editor de marcadores. " +
             "Vuelve a abrir el editor para trabajar sobre la revision actual.";
 
+        public const string XfaUnsupportedMessage =
+            "Los formularios XFA pueden reconstruir su estructura al abrirse. " +
+            "PDF Ligero no reescribe los marcadores de un XFA porque no puede " +
+            "garantizar que la copia resultante siga siendo válida. Guarda antes " +
+            "una copia como PDF normal.";
+
         private const int MaximumOutlineDepth = 256;
         private const int MaximumOutlineItems = 100000;
 
@@ -659,7 +665,7 @@ namespace FirmaAutomatica
                     throw new InvalidDataException(
                         "No se pudieron leer los marcadores de \"" +
                         Path.GetFileName(sourcePath) + "\": " +
-                        ex.Message,
+                        PdfProblemDiagnostics.Describe(ex, sourcePath),
                         ex);
                 }
                 finally
@@ -992,7 +998,15 @@ namespace FirmaAutomatica
                 if (!reader.IsOpenedWithFullPermissions)
                 {
                     throw new UnauthorizedAccessException(
-                        "El PDF esta protegido y no permite editar marcadores.");
+                        "El PDF está protegido y no permite editar marcadores.");
+                }
+
+                // El resto de operaciones estructurales ya bloqueaban XFA. Aqui
+                // faltaba, y reescribir el arbol de marcadores de un formulario
+                // dinamico puede dejar una copia dañada sin avisar.
+                if (HasXfa(reader))
+                {
+                    throw new NotSupportedException(XfaUnsupportedMessage);
                 }
 
                 if (reader.NumberOfPages != document.PageCount)
@@ -2721,6 +2735,28 @@ namespace FirmaAutomatica
             PdfObject value)
         {
             return ResolvePdfObject(value) as PdfDictionary;
+        }
+
+        /// <summary>
+        /// Misma deteccion doble que PdfAcroFormService: el paquete /XFA del
+        /// catalogo y el estado real de AcroFields.
+        /// </summary>
+        private static bool HasXfa(PdfReader reader)
+        {
+            var catalog = reader == null ? null : reader.Catalog;
+            var acroForm = ResolveDictionary(
+                catalog == null
+                    ? null
+                    : catalog.Get(PdfName.ACROFORM));
+            if (acroForm != null && acroForm.Get(PdfName.XFA) != null)
+            {
+                return true;
+            }
+
+            return reader != null &&
+                reader.AcroFields != null &&
+                reader.AcroFields.Xfa != null &&
+                reader.AcroFields.Xfa.XfaPresent;
         }
 
         private static int NormalizeRotation(int rotation)

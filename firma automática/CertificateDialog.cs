@@ -323,7 +323,7 @@ namespace FirmaAutomatica
         {
             if (sourceTabs.SelectedTab == windowsStoreTab && storeCertificatesListBox.SelectedItem == null)
             {
-                MessageBox.Show(this, "Selecciona primero un certificado de Windows.", "Firma automatica", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, "Selecciona primero un certificado de Windows.", "Firmar PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -358,7 +358,7 @@ namespace FirmaAutomatica
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(this, "No se pudo usar la imagen seleccionada: " + ex.Message, "Firma automatica", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(this, "No se pudo usar la imagen seleccionada: " + ex.Message, "Firmar PDF", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
                 finally
@@ -395,7 +395,7 @@ namespace FirmaAutomatica
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "No se pudo restablecer la firma predeterminada: " + ex.Message, "Firma automatica", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, "No se pudo restablecer la firma predeterminada: " + ex.Message, "Firmar PDF", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
@@ -418,7 +418,7 @@ namespace FirmaAutomatica
             var item = storeCertificatesListBox.SelectedItem as CertificateListItem;
             if (item == null)
             {
-                MessageBox.Show(this, "Selecciona un certificado del almacen Personal.", "Firma automatica", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, "Selecciona un certificado del almacen Personal.", "Firmar PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -434,7 +434,7 @@ namespace FirmaAutomatica
             var path = certificatePathTextBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             {
-                MessageBox.Show(this, "Selecciona un certificado valido.", "Firma automatica", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, "Selecciona un certificado valido.", "Firmar PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -447,7 +447,7 @@ namespace FirmaAutomatica
 
                 if (!certificate.HasPrivateKey)
                 {
-                    MessageBox.Show(this, "El certificado seleccionado no tiene clave privada.", "Firma automatica", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, "El certificado seleccionado no tiene clave privada.", "Firmar PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     certificate.Dispose();
                     return;
                 }
@@ -465,7 +465,7 @@ namespace FirmaAutomatica
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(this, "No se pudo guardar la firma visual asociada: " + ex.Message, "Firma automatica", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(this, "No se pudo guardar la firma visual asociada: " + ex.Message, "Firmar PDF", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     certificate.Dispose();
                     return;
                 }
@@ -478,7 +478,7 @@ namespace FirmaAutomatica
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "No se pudo abrir el certificado: " + ex.Message, "Firma automatica", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, "No se pudo abrir el certificado: " + ex.Message, "Firmar PDF", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 

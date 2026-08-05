@@ -310,8 +310,13 @@ namespace FirmaAutomatica
                         }
                         catch (Exception ex)
                         {
+                            // Se usa el diagnostico comun para no incrustar aqui
+                            // el texto ingles de iText, que despues ya no se
+                            // puede recuperar de la cadena de excepciones.
                             throw new InvalidDataException(
-                                "No se pudo incorporar \"" + Path.GetFileName(sourcePath) + "\": " + ex.Message,
+                                "No se pudo incorporar \"" +
+                                Path.GetFileName(sourcePath) + "\": " +
+                                PdfProblemDiagnostics.Describe(ex, sourcePath),
                                 ex);
                         }
                         finally
