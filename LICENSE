@@ -1,22 +1,3 @@
-PDF Ligero y Word2PDF
-Copyright (C) 2026 AGOIN
-
-Este programa es software libre: puede redistribuirlo y modificarlo bajo los
-terminos de la Licencia Publica General Affero de GNU, version 3, publicada por
-la Free Software Foundation.
-
-Se distribuye con la esperanza de que sea util, pero SIN NINGUNA GARANTIA; ni
-siquiera la garantia implicita de COMERCIABILIDAD o APTITUD PARA UN PROPOSITO
-DETERMINADO. Vease la Licencia Publica General Affero de GNU para mas detalles.
-
-Deberia haber recibido una copia de la licencia junto con este programa. Si no
-es asi, vease <https://www.gnu.org/licenses/>.
-
-El motivo de esta licencia es que el programa incorpora iTextSharp 5, de iText
-Group NV, distribuido bajo AGPL v3. La atribucion completa de terceros esta en
-THIRD-PARTY-NOTICES.md y el analisis en LICENCIAS.md.
-
---------------------------------------------------------------------------------
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 

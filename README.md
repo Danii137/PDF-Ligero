@@ -67,9 +67,25 @@ sin ella, la firma visible usa su representación de reserva.
 
 ## Licencia
 
-AGPL v3. Ver [`LICENSE`](LICENSE).
+```text
+PDF Ligero y Word2PDF
+Copyright (C) 2026 AGOIN
 
-El programa incorpora iTextSharp 5, que es AGPL, y por eso el conjunto lo es
-también. El análisis completo está en [`LICENCIAS.md`](LICENCIAS.md) y la
-atribución de terceros en
+Este programa es software libre: puede redistribuirlo y modificarlo bajo los
+términos de la Licencia Pública General Affero de GNU, versión 3, publicada por
+la Free Software Foundation.
+
+Se distribuye con la esperanza de que sea útil, pero SIN NINGUNA GARANTÍA; ni
+siquiera la garantía implícita de COMERCIABILIDAD o APTITUD PARA UN PROPÓSITO
+DETERMINADO. Véase la Licencia Pública General Affero de GNU para más detalles.
+
+Debería haber recibido una copia de la licencia junto con este programa. Si no
+es así, véase <https://www.gnu.org/licenses/>.
+```
+
+El texto completo está en [`LICENSE`](LICENSE).
+
+El motivo de esta licencia es que el programa incorpora iTextSharp 5, de iText
+Group NV, distribuido bajo AGPL v3. El análisis completo está en
+[`LICENCIAS.md`](LICENCIAS.md) y la atribución de terceros en
 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
