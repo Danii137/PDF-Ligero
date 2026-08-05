@@ -2,10 +2,13 @@
 
 > Documento de relevo para Claude Code, Codex u otro agente.
 >
-> **Última auditoría:** 4 de agosto de 2026  
-> **Estado funcional estable:** fases 1–8 terminadas, incluida la edición
-> visual controlada de texto y el rellenado de AcroForm.  
-> **Siguiente prioridad:** fase 9, endurecimiento transversal y distribución.  
+> **Última auditoría:** 5 de agosto de 2026  
+> **Estado funcional estable:** fases 1–8 terminadas y **endurecimiento
+> transversal de la fase 9 completado**: diagnóstico único de PDFs protegidos,
+> cifrados o dañados, mensajes homogéneos en español y modo protegido de solo
+> lectura en el visor.  
+> **Siguiente prioridad:** lo que queda de la fase 9 — instalador único,
+> actualización de PDFium, revisión de licencias y firma Authenticode.  
 > **Regla de lectura:** cuando este archivo y una suposición entren en conflicto,
 > comprobar primero el código y los informes de QA. Las casillas pendientes de
 > la sección 12 son el protocolo para trabajos futuros, no tareas abiertas de
@@ -105,14 +108,34 @@ integración para cada recompilación si la ruta de salida no cambia.
 
 ```text
 PDFLigero.exe
-Fecha: 04/08/2026 18:54:24  
-Tamaño: 693760 bytes  
-SHA-256: EE2C5DC80783805EB7C7C9E8C7C91650F7038CDA9F807D3A141AC3465B85C4DA
+Fecha: 05/08/2026 09:11  
+Tamaño: 845312 bytes  
+SHA-256: 1BA04E1DBD5BE7B5D8FEAA4397B8C10B3390CF45ED4316762C9B70F03479210F
 ```
 
-La raíz auditada no contiene metadatos `.git`. Antes de una refactorización
-grande hay que crear una copia o iniciar control de versiones; no existe un
-`git restore` fiable en el estado actual.
+Ojo al comparar: `csc` incrusta un MVID nuevo en cada compilación, así que
+recompilar sin tocar una sola línea **ya cambia el SHA-256**. Sirve para
+identificar un binario concreto, no para saber si el código cambió; para eso
+está el repositorio.
+
+### Control de versiones
+
+Desde el 5 de agosto de 2026 la raíz **sí** tiene repositorio Git, publicado en:
+
+```text
+https://github.com/Danii137/PDF-Ligero
+```
+
+`.gitignore` deja fuera `build/`, `packages/`, `runtime/`, `tmp/` y `.qa-p1/`,
+los binarios compilados y, deliberadamente, `firma_limpia.png` y
+`appearances_from_acrobat.pdf`: son la firma manuscrita real y su apariencia, y
+no deben publicarse. Quien clone el repositorio debe aportar su propia imagen en
+`firma automática\build\output\`; sin ella la firma visible usa su camino de
+reserva.
+
+Los harnesses sí están versionados (sus `*.cs`, `*.ps1` y `*.md`), pero no sus
+carpetas `run-*` ni `output/`. Se añaden con `git add -f` porque su directorio
+padre está ignorado.
 
 ## 3. Restricciones técnicas
 
@@ -144,6 +167,33 @@ antes de distribuir el programa fuera de un uso propio o interno.
 
 ## 4. Arquitectura y archivos clave
 
+### Diagnóstico y apertura (fase 9)
+
+- `PdfProblemDiagnostics.cs`
+  - traduce cualquier fallo de PDF a un `PdfProblemKind` y a un texto en
+    español, con un consejo de qué hacer;
+  - recorre la cadena de `InnerException` buscando **primero** las excepciones
+    de PDFium e iText, que son las únicas que identifican la causa sin
+    ambigüedad, y responde siempre con texto propio;
+  - existe porque la interfaz mostraba `GetBaseException().Message` y acababa
+    enseñando el mensaje inglés más interno (`Bad user password`) en lugar del
+    castellano que los servicios ya escribían;
+  - sin dependencia de WinForms, para poder probarlo aislado;
+  - **coste cero en la ruta feliz**: solo se ejecuta dentro de `catch`.
+- `PdfDocumentOpenService.cs`
+  - único punto de apertura con PDFium en toda la aplicación;
+  - abre su propio `FileStream` y lo cierra en el camino de fallo. Es
+    obligatorio: todas las sobrecargas de `PdfDocument.Load` salvo
+    `Load(IWin32Window, Stream, string)` se compilan **sin ninguna cláusula de
+    manejo de excepciones**, así que al fallar dejaban el archivo bloqueado y el
+    usuario no podía borrarlo ni renombrarlo;
+  - `IsPasswordRequired` distingue el caso que merece pedir contraseña.
+- `PdfPasswordPromptForm.cs`
+  - pide la contraseña de apertura con la identidad visual de la aplicación, en
+    lugar del `PasswordForm` en inglés de PdfiumViewer;
+  - la contraseña vive solo en el `TextBox` y en una variable local del bucle;
+    nunca llega a `AppLog`, a `UserPreferences` ni a un mensaje de excepción.
+
 ### Arranque e integración del sistema
 
 - `Program.cs`
@@ -151,7 +201,10 @@ antes de distribuir el programa fuera de un uso propio o interno.
   - decide entre visor (`--open`/`--view`), combinación (`--merge`) y firma
     (`--sign` o argumentos normales);
   - limita lotes a 50 PDFs;
-  - contiene parseo CLI, coordinación de instancias y logging.
+  - contiene parseo CLI, coordinación de instancias y logging;
+  - `CliArgumentParser.Parse` devuelve también lo descartado y por qué: si se
+    invoca con archivos y no queda ninguno válido, se explica en vez de abrir un
+    visor vacío.
 - `ViewerInstanceBroker.cs`
   - mantiene una sola instancia del visor;
   - reenvía nuevas aperturas del Explorador a la ventana existente.
@@ -353,6 +406,21 @@ Estas reglas forman parte del producto, no son recomendaciones opcionales.
    restricciones FieldMDP/DocMDP y derechos de uso Adobe se bloquean en esta
    primera entrega cuando no puede garantizarse un resultado seguro.
 
+### Diagnóstico y apertura
+
+1. Toda apertura con PDFium pasa por `PdfDocumentOpenService.Load`. No volver a
+   usar `PdfiumDocument.Load` directamente: filtra el handle del archivo al
+   fallar.
+2. Ningún mensaje de PDFium ni de iText puede llegar al usuario. Los errores se
+   muestran con `ShowPdfProblem` en el visor, o con
+   `PdfProblemDiagnostics.Describe` en los motores.
+3. La clasificación solo se ejecuta dentro de un `catch`. No preescanear un PDF
+   para saber si está cifrado: eso rompería la ligereza de la apertura.
+4. Un PDF abierto con contraseña de usuario marca `IsPasswordProtected` en su
+   workspace y es de solo lectura. La contraseña **no se guarda**: no hace falta,
+   porque ninguna ruta viva reabre el archivo, y guardarla sería un riesgo
+   innecesario.
+
 ### Rendimiento
 
 1. No cargar todas las pestañas al abrirlas.
@@ -497,6 +565,24 @@ Atajos que no deben romperse:
 Una nueva herramienta debe integrarse en la exclusión mutua de
 `RefreshToolAvailability`, `CanUseRectangleZoom`, teclado, cambio/cierre de
 pestaña y `FormClosing`.
+
+### Modo protegido
+
+Un PDF abierto con contraseña muestra `DOCUMENTO PROTEGIDO` en el rótulo de la
+cabecera y `Protegido con contraseña · solo lectura` en el tooltip de su
+pestaña. `RefreshToolAvailability` calcula `protectedDocument` y
+`canEditDocument`, y apaga texto/formularios, OCR, organizar, marcadores,
+comparar y firmar, además de las operaciones de página en las miniaturas.
+Siguen disponibles buscar, medir, combinar, imprimir, guardar copia, zoom y
+rotación.
+
+Los ocho métodos accesibles por atajo llevan además su propia guarda, porque el
+teclado se salta la propiedad `Enabled`. El resultado es que en modo protegido
+no puede reservarse ninguna revisión en Recovery.
+
+Aviso al tocar esto: **WinForms no muestra el tooltip de un control
+deshabilitado**. La explicación va en el contenedor `toolRail`, que sí recibe el
+ratón, y en el `ToolTipText` de los elementos de menú.
 
 ## 9. Fase 7: medición calibrada — **COMPLETADA**
 
@@ -702,11 +788,54 @@ la operación se bloquea en lugar de publicar glifos vacíos.
 Ejecutar desde `firma automática\`. Cerrar previamente todas las ventanas de
 PDF Ligero y lanzar los scripts de forma secuencial.
 
+### Con qué host lanzar cada script
+
+Los harnesses no comparten convención de codificación y equivocarse produce
+**falsos fallos** que no tienen nada que ver con el código:
+
+- los que son **UTF-8 sin BOM y contienen acentos** deben lanzarse desde
+  PowerShell 7 (`.\build\...\script.ps1`), que lee UTF-8 por defecto. Con
+  `powershell.exe` los acentos se leen como ANSI y el script ni siquiera parsea.
+  Es el caso de `validation-ocr-ui`, `validation-performance` y los
+  `run-smoke.ps1` que llevan shim de relanzamiento;
+- los que tienen **BOM** funcionan con `powershell.exe -NoProfile -STA`. Es el
+  caso de `validation-measurement-viewer` y `validation-plan-comparison-viewer`,
+  que además **necesitan** ese host: PowerShell 7 no puede inicializar
+  PdfiumViewer y el visor arranca sin pestañas.
+
+Regla práctica: si un harness falla con un error de sintaxis o con "no abrió las
+pestañas", probar primero con el otro host antes de buscar el fallo en el código.
+
+Los harnesses de UI tampoco deben encadenarse sin pausa: ejecutar varios
+seguidos puede producir un falso fallo por bloqueo del ejecutable. Conviene
+comprobar que no quedan procesos `PDFLigero` entre uno y otro.
+
 ### Build completo
 
 ```powershell
 .\build.ps1 -SkipRestore
 ```
+
+### Endurecimiento de PDFs protegidos, cifrados o dañados
+
+```powershell
+.\build\validation-hardening\compile-and-run.ps1
+.\build\validation-hardening-viewer\run-smoke.ps1
+```
+
+Auditado el 5 de agosto de 2026, ambos `PASS`:
+
+- motor: clasificación de contraseña, permisos, cifrado no admitido, dañado,
+  truncado, cifrado+truncado, PNG renombrado, inexistente y bloqueado por otro
+  proceso; apertura real de PDFs cifrados con contraseña correcta, incorrecta y
+  de solo propietario; ausencia de texto inglés en lo que ve el usuario;
+- **prueba clave del harness**: tras cada fallo de apertura el fixture se puede
+  borrar. Si PdfiumViewer hubiera dejado su `FileStream` abierto, no se podría;
+- visor real: diálogo propio en español, aviso de contraseña incorrecta,
+  apertura al acertar, modo protegido con la lista exacta de herramientas
+  apagadas y encendidas, atajos que no tocan Recovery, alternancia entre pestaña
+  protegida y normal, cancelación sin diálogo de error con el archivo liberado
+  al instante, y capturas inspeccionadas a tamaño normal y a 900×620.
 
 ### Edición de texto y AcroForm
 
@@ -872,11 +1001,24 @@ Los QA de medición viven en `build\validation-measurement-engine`,
 Crean fixtures propios; no dependen de PDFs personales ni escriben archivos
 en el directorio de producción.
 
-### Backlog confirmado tras la optimización
+### Rendimiento tras la fase 9
 
-1. Endurecer de forma transversal el diagnóstico y la recuperación de PDFs
-   protegidos, cifrados o dañados; texto y AcroForm ya aplican la política
-   conservadora de la fase 8.
+Reejecutado el 5 de agosto de 2026 sobre el binario del endurecimiento, con
+`RESULTADO_GLOBAL=PASS` en dos pasadas. **La memoria es idéntica a la de
+referencia en los cinco escenarios**, que es la invariante que importa: 27,8 /
+41,8 / 43,2 / 184,1 / 43,4 MiB privados.
+
+Los tiempos varían bastante entre pasadas porque el equipo no estaba en reposo
+(ventana vacía 263 ms en la primera y 179 ms en la segunda). En la segunda
+pasada cuatro de los cinco escenarios quedan igual o por debajo de la referencia
+y el quinto dentro de esa misma varianza. No hay indicio de regresión: el único
+cambio en la ruta de apertura es un `FileStream` propio en lugar del
+`File.OpenRead` que la librería hacía por dentro.
+
+### Backlog confirmado
+
+1. ~~Endurecer de forma transversal el diagnóstico y la recuperación de PDFs
+   protegidos, cifrados o dañados.~~ **Hecho el 5 de agosto de 2026.**
 2. Reutilizar opcionalmente la posición de firma en lotes, normalizando el
    rectángulo por tamaño y rotación de página y permitiendo confirmar cada PDF.
 3. Evaluar edición directa de objetos de texto solo para PDFs compatibles; la
@@ -884,8 +1026,9 @@ en el directorio de producción.
 4. Hibernar visores mediante LRU solo si el uso real supera habitualmente
    8-12 documentos grandes ya visitados; con cuatro pestañas lazy la memoria
    medida ya es 43,3 MiB y no justifica ese refactor.
-5. Antes de distribución externa: repositorio Git, proyecto/solución y tests,
-   revisión de licencias, instalador/desinstalador único y firma Authenticode.
+5. Antes de distribución externa: ~~repositorio Git~~ (hecho), proyecto/solución
+   y tests, revisión de licencias, instalador/desinstalador único y firma
+   Authenticode.
 
 ## 12. Checklist para la próxima fase o modificación
 
@@ -975,3 +1118,52 @@ Siguiente prioridad: fase 9, endurecimiento transversal y distribución
 Consultar los informes indicados en la sección 11. Si se modifica un motor,
 repetir primero su harness aislado, después su QA UI/integración y por último
 las regresiones y el benchmark proporcionales al cambio.
+
+## 14. Cierre del endurecimiento de la fase 9
+
+```text
+Estado: COMPLETADO el 5 de agosto de 2026
+Diagnostico unico (PdfProblemDiagnostics): PASS
+Apertura segura de PDFium (PdfDocumentOpenService): PASS
+Dialogo de contrasena en espanol: PASS
+Modo protegido de solo lectura: PASS
+Mensajes homogeneos en visor, motores y CLI: PASS
+XFA bloqueado tambien en marcadores: PASS
+QA motor (validation-hardening): PASS
+QA visor real (validation-hardening-viewer): PASS
+Regresiones (16 harnesses + 4 smoke + OCR completo): PASS
+Benchmark de rendimiento: PASS, memoria identica a la referencia
+Procesos residuales: 0
+Siguiente prioridad: instalador unico, PDFium, licencias y Authenticode
+```
+
+### Tres fallos preexistentes corregidos por el camino
+
+No formaban parte del encargo, pero salieron al probar y estaban en la misma
+zona:
+
+1. **Handle filtrado al fallar una apertura.** `PdfDocument.Load(path)` deja el
+   `FileStream` abierto con `FileShare.Read` cuando la carga falla, porque esa
+   sobrecarga no tiene cláusulas de manejo de excepciones. El usuario no podía
+   borrar ni renombrar su propio PDF hasta cerrar la aplicación. Lo sufrían OCR,
+   comparación de planos y la vista previa de firma. Comprobado con un
+   experimento de control antes y después.
+2. **El prefijo `"! "` de una pestaña que no se pudo abrir** lo reescribía
+   `RefreshWorkspaceEditState` justo después, así que la marca no llegaba a
+   verse nunca.
+3. **El botón de medición quedaba en gris tras cada cambio de pestaña**:
+   `ActivateSelectedWorkspace` llamaba a `RefreshToolAvailability` dentro del
+   bloque donde `activatingWorkspace` sigue en `true`, y nada lo recalculaba al
+   salir.
+
+### Limitaciones conocidas
+
+- Un PDF con **solo contraseña de propietario** no dispara el diálogo, porque
+  PDFium lo abre con contraseña de usuario vacía. Detectarlo al abrir exigiría
+  cargarlo también con iText, lo que rompería la ligereza de la apertura. Sigue
+  fallando al invocar la herramienta, pero ya con mensaje en español.
+- Combinar con una pestaña protegida abierta seguirá fallando por ese PDF, igual
+  que antes. Bloquearlo habría sido un bloqueo nuevo sobre algo que hoy funciona
+  en el resto de casos.
+- El modo protegido no guarda la contraseña, así que no se puede reabrir el
+  archivo dentro de la sesión. No hace falta: ninguna ruta viva lo necesita.

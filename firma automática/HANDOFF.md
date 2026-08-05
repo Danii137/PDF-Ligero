@@ -115,10 +115,20 @@ Puntos ya resueltos:
 
 ## Siguiente fase
 
-Fase 9: endurecer de forma transversal PDFs protegidos, cifrados o dañados y
-preparar la distribución. Después puede añadirse la reutilización opcional de
-posición de firma en lotes. La redacción/saneado real seguirá siendo un módulo
-opcional hasta demostrar que elimina también contenido oculto.
+El endurecimiento transversal de la fase 9 quedó **completado el 5 de agosto de
+2026**: diagnóstico único de PDFs protegidos, cifrados o dañados, mensajes
+homogéneos en español, diálogo propio de contraseña y modo protegido de solo
+lectura en el visor.
+
+Lo siguiente es la parte de distribución: instalador único para Word2PDF y PDF
+Ligero, actualización del motor PDFium, revisión de licencias y firma
+Authenticode. Después puede añadirse la reutilización opcional de posición de
+firma en lotes. La redacción/saneado real seguirá siendo un módulo opcional
+hasta demostrar que elimina también contenido oculto.
+
+El proyecto ya tiene control de versiones: `https://github.com/Danii137/PDF-Ligero`.
+`firma_limpia.png` queda deliberadamente fuera del repositorio por ser una firma
+manuscrita real.
 
 ## Scripts importantes
 - `build.ps1`
@@ -525,6 +535,19 @@ No es un proyecto `.csproj`; se compila por script con `csc`.
   vigente del binario se mantiene en `..\CONTEXTO_PDF_LIGERO.md`.
 - `build/validation-close-performance/`: perfil por etapas que aisló la
   destrucción WinForms y justifica el cierre por lote.
+- `build/validation-hardening/`: clasificación de PDFs con contraseña, permisos
+  restringidos, cifrado no admitido, dañado, truncado, cifrado+truncado, PNG
+  renombrado a `.pdf`, inexistente y bloqueado por otro proceso; apertura real de
+  PDFs cifrados con contraseña correcta, incorrecta y de solo propietario;
+  ausencia de texto inglés de PDFium o iText en lo que ve el usuario; y la
+  comprobación de que tras cada fallo el archivo se puede borrar, que es la
+  prueba de que no queda ningún handle abierto.
+- `build/validation-hardening-viewer/`: visor real con diálogo propio de
+  contraseña, aviso de contraseña incorrecta, apertura al acertar, modo protegido
+  con la lista exacta de herramientas apagadas y encendidas, atajos que no tocan
+  Recovery, alternancia entre pestaña protegida y normal, cancelación sin diálogo
+  de error con el archivo liberado al instante y capturas a tamaño normal y
+  900×620.
 
 ## Pruebas manuales recomendadas al retomar
 1. Firmar un solo PDF desde clic derecho
@@ -569,6 +592,20 @@ No es un proyecto `.csproj`; se compila por script con `csc`.
     casillas, opciones, combos/listas, apariencias y campos aun interactivos
 31. Intentar texto/formulario sobre XFA, protegido y firmado/certificado y
     comprobar el bloqueo o aviso sin temporales ni cambios en el original
+32. Abrir un PDF con contraseña de apertura: comprobar que el diálogo está en
+    español, que una contraseña incorrecta avisa dentro de la propia ventana y
+    que al acertar la cabecera muestra `DOCUMENTO PROTEGIDO`
+33. Con esa pestaña activa, confirmar que texto, OCR, marcadores, organizar,
+    comparar y firmar están en gris, y que buscar, medir, imprimir y guardar
+    copia siguen funcionando; alternar a una pestaña normal y ver que todo
+    vuelve
+34. Cancelar el diálogo de contraseña y comprobar que no sale ningún error, que
+    la pestaña queda con `!` y que **el archivo se puede renombrar desde el
+    Explorador inmediatamente**; volver a abrirlo debe preguntar otra vez
+35. Abrir un PDF dañado o truncado y comprobar que no pide contraseña y que el
+    mensaje explica que el archivo no es válido o está incompleto
+36. Revisar `%TEMP%\FirmaAutomatica.log` y confirmar que no aparece ninguna
+    contraseña
 
 ## Ruta de salida principal
 El ejecutable final esta en:

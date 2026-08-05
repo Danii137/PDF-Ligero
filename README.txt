@@ -34,6 +34,24 @@ Funciones disponibles:
 - Las nuevas invocaciones de "Abrir con PDF Ligero" llegan a la ventana ya abierta.
 - Firma visual diferente para cada certificado.
 - Icono del plátano rojo en la aplicación y la integración de Windows.
+- PDFs con contraseña: se pide en español y el documento se abre en modo
+  protegido, de solo lectura.
+- Cualquier problema al abrir un PDF (cifrado, dañado, en uso o desaparecido) se
+  explica en español y con qué hacer.
+
+PDFS PROTEGIDOS
+---------------
+Si un PDF pide contraseña de apertura, PDF Ligero la solicita en su propia
+ventana. No la guarda ni la envía a ningún sitio.
+
+Al acertarla el documento se abre en modo protegido: se puede ver, buscar,
+medir, imprimir y guardar una copia, pero las herramientas que modifican el PDF
+quedan desactivadas con una explicación. Es deliberado: esas herramientas abren
+el documento por su cuenta y no conocen la contraseña, así que antes fallaban
+una a una con mensajes en inglés.
+
+Cancelar no es un error. La pestaña queda marcada con "!" y basta volver a abrir
+el archivo para que pregunte otra vez.
 
 Para insertar páginas en el PDF abierto, arrastra uno o varios archivos PDF
 desde el Explorador hasta el espacio exacto entre dos miniaturas. Una línea
@@ -60,6 +78,10 @@ Para registrar "Abrir con PDF Ligero", "Combinar con PDF Ligero" y "Firmar PDFs"
 Las fases siguientes están descritas en "ROADMAP_PDF_LIGERO.md".
 Para continuar el desarrollo con otro agente, leer primero
 "CONTEXTO_PDF_LIGERO.md".
+
+El código está en https://github.com/Danii137/PDF-Ligero. La imagen de firma
+manuscrita "firma_limpia.png" no se publica: cada instalación aporta la suya en
+"firma automática\build\output\".
 
 REQUISITOS
 ----------

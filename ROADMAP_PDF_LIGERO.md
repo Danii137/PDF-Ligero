@@ -296,25 +296,47 @@ compatibles y después de demostrar que no dejan datos ocultos.
 
 ## Fase 9 - Endurecimiento y distribución
 
-- recuperación tras cierre inesperado (base completada);
-- tratamiento claro de PDFs protegidos o dañados (cubierto ya en los nuevos
-  flujos de texto/formularios; falta homogeneizarlo en toda la aplicación);
-- pruebas de regresión con PDFs rotados, formularios, firmas previas y
-  documentos grandes (batería de la fase 8 completada; mantenerla en cada
-  cambio);
-- mantener herramientas pesadas bajo demanda y medir apertura/memoria antes de
-  aceptar una optimización;
+Estado: endurecimiento transversal **completado** el 5 de agosto de 2026. Queda
+la parte de distribución.
+
+Hecho:
+
+- recuperación tras cierre inesperado;
+- **tratamiento homogéneo de PDFs protegidos, cifrados o dañados en toda la
+  aplicación**;
+- diagnóstico único que traduce cualquier fallo de PDFium o de iText a una causa
+  y un texto en español, con un consejo de qué hacer;
+- diálogo propio de contraseña de apertura, en lugar del formulario en inglés de
+  la librería;
+- modo protegido de solo lectura: el documento se ve, se busca, se mide, se
+  imprime y se guarda copia, pero las herramientas que editan quedan apagadas con
+  una explicación, en vez de fallar una a una;
+- apertura de PDFium centralizada, que además dejó de bloquear el archivo cuando
+  la carga falla;
+- fin de los descartes en silencio: el CLI y la ventana de combinar explican qué
+  archivo no pudieron abrir y por qué;
+- XFA bloqueado también al editar marcadores, que era el último flujo estructural
+  donde podía generarse una copia dañada sin avisar;
+- control de versiones iniciado y publicado en GitHub;
+- pruebas de regresión mantenidas: 16 harnesses de motor y UI, cuatro smoke del
+  visor real, OCR completo y benchmark de rendimiento;
+- herramientas pesadas siguen bajo demanda; la memoria medida es idéntica a la
+  de la fase 8 en los cinco escenarios del benchmark.
+
+Pendiente:
+
 - instalador único para Word2PDF y PDF Ligero;
 - actualización del motor PDFium;
+- revisión de la estrategia de licencias antes de distribuir fuera de un uso
+  propio o interno;
 - firma Authenticode del ejecutable si el programa se distribuye.
 
 ## Siguiente entrega
 
-La siguiente prioridad es terminar el endurecimiento transversal de la fase 9:
-mensajes y recuperación homogéneos para PDFs protegidos, cifrados o dañados,
-seguido de la preparación del instalador y la revisión de licencias. Como mejora
-funcional independiente queda reutilizar opcionalmente una posición normalizada
-de firma en lotes, confirmando cada PDF antes de firmarlo.
+La siguiente prioridad es la parte de distribución de la fase 9: instalador
+único, actualización de PDFium, revisión de licencias y firma Authenticode. Como
+mejora funcional independiente queda reutilizar opcionalmente una posición
+normalizada de firma en lotes, confirmando cada PDF antes de firmarlo.
 
 La redacción real y el saneado continúan siendo opcionales. No se publicarán
 hasta demostrar que eliminan contenido y datos ocultos en lugar de limitarse a

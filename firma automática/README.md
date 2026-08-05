@@ -43,7 +43,32 @@ La aplicación ya permite:
 - combinar varios PDFs en el orden elegido, sin modificar los originales;
 - firmar uno o varios PDF desde el menú contextual;
 - asociar una imagen de firma diferente a cada certificado;
-- conservar el flujo visual y el guardado con sufijo `_f`.
+- conservar el flujo visual y el guardado con sufijo `_f`;
+- abrir PDFs protegidos con contraseña y explicar en español, siempre, qué pasa
+  cuando un documento está cifrado, dañado, en uso o ya no está.
+
+## PDFs protegidos, cifrados o dañados
+
+Si un PDF pide contraseña de apertura, PDF Ligero la solicita en una ventana
+propia. La contraseña no se guarda ni se envía a ningún sitio.
+
+Al acertarla, el documento se abre en **modo protegido**: la cabecera muestra
+`DOCUMENTO PROTEGIDO` y se puede ver, navegar, buscar, medir, imprimir y guardar
+una copia con normalidad. Las herramientas que modifican el PDF —texto y
+formularios, OCR, organizar páginas, marcadores, comparar y firmar— aparecen
+desactivadas con una explicación, porque cada una abre el documento por su
+cuenta y no conoce esa contraseña.
+
+Cancelar la ventana de contraseña no es un error: la pestaña queda marcada con
+`!` y basta volver a abrir el archivo para que se pregunte otra vez.
+
+Cuando un PDF no se puede abrir, el motivo se explica siempre en español —
+cifrado no admitido, archivo dañado o incompleto, en uso por otro programa, sin
+permisos o ya no está en su sitio— junto con qué se puede hacer al respecto.
+
+Un PDF que solo tiene contraseña de propietario se abre sin preguntar nada, como
+en cualquier visor. Si sus permisos impiden una edición segura, la herramienta
+correspondiente lo dirá al invocarla.
 
 ## Construcción
 
@@ -56,6 +81,10 @@ La salida principal es:
 ```text
 build\output\PDFLigero.exe
 ```
+
+`firma_limpia.png` no está en el repositorio: es una firma manuscrita real y
+cada instalación debe aportar la suya en `build\output\`. Sin ella, la firma
+visible usa su camino de reserva.
 
 También se genera `FirmaAutomatica.exe` como copia compatible con instalaciones anteriores.
 
