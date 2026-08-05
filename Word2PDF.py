@@ -31,6 +31,26 @@ APP_NAME = "PDF Ligero"
 CONSOLE_TITLE = "PDF Ligero - Convertir a PDF"
 ICON_FILE = "PDFLigero.ico"
 
+# Se muestra solo cuando todo se ha convertido sin un solo error.
+# Esta aqui suelto y sin dependencias a proposito, para que cambiar el dibujo o
+# el texto sea editar estas lineas y nada mas.
+SUCCESS_ART = r"""
+                     )   (
+                    (     )
+                 .-'-------'-.
+               .'             '.
+              /   .-.     .-.   \
+             |   ( o )   ( o )   |
+             |        ___        |
+              \      (___)      /
+               '.             .'
+                 '-._______.-'
+
+                    D'oh!
+"""
+
+SUCCESS_MESSAGE = "Todo convertido. Gracias, Dani."
+
 
 def resource_path(relative_name):
     """Ruta de un recurso, tanto en desarrollo como dentro del EXE.
@@ -192,6 +212,11 @@ def print_summary(successful, failed):
 
     print("")
     print(f"Log: {LOG_FILE}")
+
+    if successful and not failed:
+        print(SUCCESS_ART)
+        print(SUCCESS_MESSAGE)
+        print("")
 
 
 def run_cli(paths):
