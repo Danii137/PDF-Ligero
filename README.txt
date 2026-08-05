@@ -109,8 +109,16 @@ USO
 ---
 1. Selecciona uno o varios archivos .doc, .docx o .rtf.
 2. Haz clic derecho.
-3. Pulsa "Convertir a PDF".
+3. Pulsa "Convertir a PDF con PDF Ligero" (con el icono del platano rojo).
 4. El PDF se genera en la misma carpeta que el Word.
+
+Las dos herramientas comparten icono y nomenclatura a proposito: en un PDF veras
+"Abrir con PDF Ligero", "Combinar con PDF Ligero" y "Firmar PDFs", y en un Word
+"Convertir a PDF con PDF Ligero". Es la misma familia.
+
+Si alguna vez recompilas Word2PDF, usa "compilar-word2pdf.ps1": genera el icono
+desde el mismo PNG que PDF Ligero, lo incrusta en el ejecutable y comprueba una
+conversion real antes de sustituir el anterior, del que deja copia .bak.
 
 NOTAS
 -----

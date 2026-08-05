@@ -31,7 +31,13 @@ con `Ctrl+Z` y `Ctrl+Y`, y la aplicación sobrevive a un cierre inesperado.
 ## Word2PDF
 
 Selecciona uno o varios `.doc`, `.docx` o `.rtf`, clic derecho y **Convertir a
-PDF**. Usa Microsoft Word por COM, así que requiere tenerlo instalado.
+PDF con PDF Ligero**. Usa Microsoft Word por COM, así que requiere tenerlo
+instalado.
+
+Las dos herramientas comparten icono y nomenclatura: el mismo plátano rojo sale
+en un `.pdf` y en un `.docx`, y las entradas del menú siguen la misma fórmula.
+El icono se genera desde un único PNG (`firma automática/assets/PDFLigero.png`)
+para las dos, de modo que no pueden desincronizarse.
 
 ## Instalación
 
@@ -53,7 +59,11 @@ La aplicación no necesita permisos de administrador: escribe solo en `HKCU`.
 
 PDF Ligero es C# sobre .NET Framework y WinForms, compilado con `csc` mediante
 `firma automática\build.ps1`. No hay `.csproj`: el script recoge todos los `.cs`
-de esa carpeta. Word2PDF es Python con PyQt5.
+de esa carpeta.
+
+Word2PDF es Python con PyQt5 y se empaqueta con `compilar-word2pdf.ps1`, que
+genera el icono desde el PNG compartido, lo incrusta en el ejecutable y prueba
+una conversión real antes de sustituir el anterior.
 
 La carpeta `firma automática\build\validation-*` contiene la batería de pruebas
 automatizadas: motores aislados, interfaces y smoke sobre el visor real.

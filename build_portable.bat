@@ -1,38 +1,13 @@
 @echo off
+REM Se conserva por compatibilidad. Creaba un entorno virtual propio y compilaba
+REM sin icono, con rutas relativas a una carpeta padre que ya no existe.
+REM Ahora lanza compilar-word2pdf.ps1, que usa el Python del sistema, incrusta el
+REM icono del platano rojo y prueba una conversion real antes de sustituir.
 setlocal
 
-cd /d "%~dp0.."
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0compilar-word2pdf.ps1" %*
+set "CODIGO=%ERRORLEVEL%"
 
-if not exist ".word2pdf_buildenv\Scripts\python.exe" (
-    echo [INFO] Creando entorno limpio de compilacion...
-    python -m venv .word2pdf_buildenv
-    if errorlevel 1 (
-        echo [ERROR] No se pudo crear el entorno virtual.
-        pause
-        exit /b 1
-    )
-)
-
-echo [INFO] Instalando dependencias de compilacion...
-".word2pdf_buildenv\Scripts\python.exe" -m pip install --upgrade pip pyinstaller PyQt5 docx2pdf
-if errorlevel 1 (
-    echo [ERROR] No se pudieron instalar las dependencias.
-    pause
-    exit /b 1
-)
-
-echo [INFO] Generando EXE...
-".word2pdf_buildenv\Scripts\pyinstaller.exe" --clean --noconfirm --onefile --name Word2PDF --paths . --workpath .word2pdf_pyi_build --distpath .word2pdf_pyi_dist Word2PDF.py
-if errorlevel 1 (
-    echo [ERROR] Error al compilar Word2PDF.exe
-    pause
-    exit /b 1
-)
-
-copy /Y ".word2pdf_pyi_dist\Word2PDF.exe" "Word2PDF_Installer\Word2PDF.exe" >nul
-
-echo.
-echo Compilacion completada.
-echo EXE actualizado en Word2PDF_Installer\Word2PDF.exe
 echo.
 pause
+exit /b %CODIGO%

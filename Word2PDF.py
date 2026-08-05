@@ -9,7 +9,7 @@ import time
 import pythoncom
 import win32com.client
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QBrush, QColor, QLinearGradient, QPainter
+from PyQt5.QtGui import QBrush, QColor, QIcon, QLinearGradient, QPainter
 from PyQt5.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -26,6 +26,29 @@ LOG_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "word2pdf_log.txt")
 ALLOWED_EXTENSIONS = {".doc", ".docx", ".rtf"}
 PDF_FILE_FORMAT = 17
 MAX_BATCH_FILES = 50
+
+APP_NAME = "PDF Ligero"
+CONSOLE_TITLE = "PDF Ligero - Convertir a PDF"
+ICON_FILE = "PDFLigero.ico"
+
+
+def resource_path(relative_name):
+    """Ruta de un recurso, tanto en desarrollo como dentro del EXE.
+
+    PyInstaller en modo onefile descomprime los datos en una carpeta temporal
+    cuya ruta deja en sys._MEIPASS.
+    """
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, relative_name)
+
+
+def application_icon():
+    """Icono compartido con PDF Ligero, o None si no se empaquetó."""
+    icon_path = resource_path(ICON_FILE)
+    if os.path.exists(icon_path):
+        return QIcon(icon_path)
+
+    return None
 
 
 def log(message):
@@ -51,7 +74,7 @@ def ensure_console():
     sys.stdout = open("CONOUT$", "w", encoding="utf-8", buffering=1)
     sys.stderr = open("CONOUT$", "w", encoding="utf-8", buffering=1)
     sys.stdin = open("CONIN$", "r", encoding="utf-8", errors="ignore")
-    ctypes.windll.kernel32.SetConsoleTitleW("Word2PDF")
+    ctypes.windll.kernel32.SetConsoleTitleW(CONSOLE_TITLE)
 
 
 def pause_console():
@@ -301,12 +324,16 @@ class DocToPdfConverter(QMainWindow):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setGeometry(100, 100, 420, 410)
-        self.setWindowTitle("Conversor de Word/RTF a PDF")
+        self.setWindowTitle("Convertir a PDF - " + APP_NAME)
+
+        icon = application_icon()
+        if icon is not None:
+            self.setWindowIcon(icon)
 
         self.create_interface()
 
     def create_interface(self):
-        self.title_label = QLabel("Conversor de Word/RTF a PDF", self)
+        self.title_label = QLabel("Convertir a PDF", self)
         self.title_label.setGeometry(40, 20, 340, 60)
         self.title_label.setStyleSheet(
             "font-size: 24px; font-weight: lighter; color: #E0E0E0; font-family: 'Segoe UI';"
@@ -464,6 +491,11 @@ def main():
         return run_cli(sys.argv[1:])
 
     app = QApplication(sys.argv)
+    app.setApplicationName(APP_NAME)
+    icon = application_icon()
+    if icon is not None:
+        app.setWindowIcon(icon)
+
     window = DocToPdfConverter()
     window.show()
     return app.exec_()

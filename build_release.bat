@@ -1,23 +1,13 @@
 @echo off
+REM Se conserva por compatibilidad. Apuntaba a una carpeta padre que ya no
+REM existe y a un Word2PDF.spec que nunca estuvo aqui, asi que no funcionaba.
+REM Ahora lanza compilar-word2pdf.ps1, que ademas incrusta el icono del platano
+REM rojo y comprueba una conversion real antes de sustituir el ejecutable.
 setlocal
 
-set "ROOT_DIR=%~dp0.."
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0compilar-word2pdf.ps1" %*
+set "CODIGO=%ERRORLEVEL%"
 
-echo Compilando Word2PDF.exe...
-py -3 -m PyInstaller --noconfirm "%ROOT_DIR%\Word2PDF.spec"
-if %errorlevel% neq 0 (
-    echo [ERROR] Fallo la compilacion.
-    pause
-    exit /b 1
-)
-
-copy /Y "%ROOT_DIR%\dist\Word2PDF.exe" "%~dp0Word2PDF.exe" >nul
-if %errorlevel% neq 0 (
-    echo [ERROR] No se pudo copiar el ejecutable compilado al instalador.
-    pause
-    exit /b 1
-)
-
-echo Listo. Ejecutable actualizado en:
-echo %~dp0Word2PDF.exe
+echo.
 pause
+exit /b %CODIGO%

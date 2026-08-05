@@ -60,7 +60,12 @@ function Register-Word2PdfExtension {
     $commandKey = Join-Path $shellKey "command"
 
     New-Item -Path $shellKey -Force | Out-Null
-    Set-Item -Path $shellKey -Value "Convertir a PDF"
+    # Misma familia que "Abrir con PDF Ligero" y "Combinar con PDF Ligero", para
+    # que las dos herramientas se reconozcan como una sola.
+    Set-Item -Path $shellKey -Value "Convertir a PDF con PDF Ligero"
+    # El icono sale del propio EXE, que desde compilar-word2pdf.ps1 lleva
+    # incrustado el mismo platano rojo que PDF Ligero. Asi el menu no depende de
+    # que PDF Ligero este compilado.
     Set-ItemProperty -Path $shellKey -Name "Icon" -Value $ExePath
     # Player agrupa la seleccion multiple en una sola invocacion por archivo,
     # que es lo que Word2PDF espera para juntarlas en un unico lote.
@@ -88,7 +93,28 @@ if ($instalarWord2PDF) {
             Register-Word2PdfExtension -Extension $extension -ExePath $word2Pdf
         }
 
-        $hechos.Add("Word2PDF: 'Convertir a PDF' en .doc, .docx y .rtf.")
+        $hechos.Add(
+            "Word2PDF: 'Convertir a PDF con PDF Ligero' en .doc, .docx y .rtf.")
+
+        $iconoEmbebido = $false
+        try {
+            Add-Type -AssemblyName System.Drawing
+            $icono = [System.Drawing.Icon]::ExtractAssociatedIcon($word2Pdf)
+            if ($null -ne $icono) {
+                $iconoEmbebido = $true
+                $icono.Dispose()
+            }
+        }
+        catch {
+            $iconoEmbebido = $false
+        }
+
+        if (-not $iconoEmbebido) {
+            $avisos.Add(
+                "Word2PDF.exe no tiene icono propio, asi que el menu mostrara " +
+                "el generico de Windows. Ejecuta compilar-word2pdf.ps1 para " +
+                "incrustarle el mismo icono que PDF Ligero.")
+        }
 
         $tieneWord = $false
         try {
@@ -147,6 +173,31 @@ if ($instalarPdfLigero) {
                 "y 'Firmar PDFs' en .pdf.")
         }
     }
+}
+
+# --------------------------------------------------------------------------
+# Refresco del Explorador
+# --------------------------------------------------------------------------
+# Windows cachea los iconos con ganas: sin avisarle, el menu contextual puede
+# seguir mostrando el anterior durante un buen rato. PDF Ligero ya lo hace en su
+# propio script, pero aqui hace falta tambien cuando solo se instala Word2PDF.
+if ($hechos.Count -gt 0) {
+    if (-not ("PDFLigeroShellRefresh" -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class PDFLigeroShellRefresh
+{
+    [DllImport("shell32.dll")]
+    public static extern void SHChangeNotify(
+        uint eventId, uint flags, IntPtr item1, IntPtr item2);
+}
+"@
+    }
+
+    # SHCNE_ASSOCCHANGED
+    [PDFLigeroShellRefresh]::SHChangeNotify(
+        0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
 }
 
 # --------------------------------------------------------------------------

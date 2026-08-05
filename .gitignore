@@ -5,6 +5,11 @@ firma automática/runtime/
 tmp/
 .qa-p1/
 __pycache__/
+.word2pdf-build/
+.word2pdf_buildenv/
+.word2pdf_pyi_build/
+.word2pdf_pyi_dist/
+*.bak
 
 # Binarios: se regeneran con build.ps1
 *.exe
