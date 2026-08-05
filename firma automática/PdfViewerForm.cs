@@ -2992,9 +2992,7 @@ namespace FirmaAutomatica
             PdfEditSession.RevisionCommit revisionCommit = null;
             try
             {
-                preparedDocument = PdfiumDocument.Load(
-                    this,
-                    result.OutputPath);
+                preparedDocument = PdfDocumentOpenService.Load(result.OutputPath);
                 if (preparedDocument.PageCount < 1 ||
                     preparedDocument.PageCount !=
                         workspace.Document.PageCount)
@@ -3191,7 +3189,7 @@ namespace FirmaAutomatica
             PdfEditSession.RevisionCommit revisionCommit = null;
             try
             {
-                preparedDocument = PdfiumDocument.Load(this, outputPath);
+                preparedDocument = PdfDocumentOpenService.Load(outputPath);
                 if (preparedDocument.PageCount < 1 ||
                     workspace.Document == null ||
                     preparedDocument.PageCount != workspace.Document.PageCount)
@@ -3300,7 +3298,7 @@ namespace FirmaAutomatica
             UseWaitCursor = true;
             try
             {
-                preparedDocument = PdfiumDocument.Load(this, targetPath);
+                preparedDocument = PdfDocumentOpenService.Load(targetPath);
                 if (preparedDocument.PageCount < 1)
                 {
                     throw new InvalidDataException(
@@ -3496,7 +3494,7 @@ namespace FirmaAutomatica
                 // revision is incomplete or Windows cannot open it.
                 if (nextDocument == null)
                 {
-                    nextDocument = PdfiumDocument.Load(this, revisionPath);
+                    nextDocument = PdfDocumentOpenService.Load(revisionPath);
                 }
                 if (nextDocument.PageCount < 1)
                 {
@@ -6002,9 +6000,7 @@ namespace FirmaAutomatica
                         "El documento cambió antes de activar el resultado.");
                 }
 
-                preparedDocument = PdfiumDocument.Load(
-                    this,
-                    result.OutputPath);
+                preparedDocument = PdfDocumentOpenService.Load(result.OutputPath);
                 if (preparedDocument.PageCount != result.PageCount ||
                     preparedDocument.PageCount < 1)
                 {
@@ -6716,9 +6712,7 @@ namespace FirmaAutomatica
                 }
 
                 CaptureOcrViewState(request);
-                preparedDocument = PdfiumDocument.Load(
-                    this,
-                    result.OutputPath);
+                preparedDocument = PdfDocumentOpenService.Load(result.OutputPath);
                 if (preparedDocument.PageCount != result.PageCount ||
                     preparedDocument.PageCount < 1)
                 {
@@ -7420,9 +7414,7 @@ namespace FirmaAutomatica
                         "El documento cambió antes de activar las páginas insertadas.");
                 }
 
-                preparedDocument = PdfiumDocument.Load(
-                    this,
-                    result.OutputPath);
+                preparedDocument = PdfDocumentOpenService.Load(result.OutputPath);
                 if (preparedDocument.PageCount != result.PageCount ||
                     preparedDocument.PageCount < 1)
                 {
