@@ -22,33 +22,35 @@ la propia organización no dispara nada.
 | Requisito | Estado |
 |---|---|
 | Publicar el código fuente del conjunto al distribuirlo | El repositorio es público: `https://github.com/Danii137/PDF-Ligero` |
-| Declarar la licencia del conjunto | **Pendiente**: el repositorio no tiene archivo `LICENSE`. Ver más abajo |
+| Declarar la licencia del conjunto | **Cumplido**: [`LICENSE`](LICENSE) con la AGPL v3 |
 | §7(b): conservar la línea `Producer` de iText en cada PDF creado o manipulado | **Cumplido y verificado en código**: `IsExpectedProducerTransition` en `firma automática/PdfTextEditService.cs` valida que el `Producer` se conserve o pase a `original + "; modified using " + versión de iText` |
 | §5: mostrar los avisos legales en la interfaz de versiones modificadas | **Cumplido parcialmente**: desde esta entrega el ejecutable declara producto, empresa y copiado con la mención a la AGPL y a iText (`firma automática/AssemblyInfo.cs`). Falta un «Acerca de» visible en la propia ventana |
 | Conservar los avisos de copyright de terceros | Cumplido con `THIRD-PARTY-NOTICES.md` |
 
-## La decisión que queda pendiente
+## La decisión tomada
 
-El repositorio es público y contiene una obra derivada de software AGPL, pero no
-declara licencia. Sin un archivo `LICENSE`, por defecto se entiende «todos los
-derechos reservados», lo que es incoherente con haberlo publicado. Hay que
-elegir:
+**El proyecto se publica bajo AGPL v3**, decidido el 5 de agosto de 2026. El
+archivo [`LICENSE`](LICENSE) contiene el texto oficial de la licencia precedido
+de la cabecera de copyright.
 
-**Opción A — Publicar bajo AGPL v3.** Es la coherente con lo que ya se ha hecho.
-Coste: cero. Consecuencia: cualquiera puede usar, modificar y redistribuir el
-código, siempre que mantenga la AGPL. Para una herramienta interna de estudio no
-suele ser un problema.
+Es la opción coherente con tener el repositorio público: el código fuente ya
+está disponible, que es justo lo que la AGPL exige a cambio de poder distribuir
+el programa.
 
-**Opción B — Comprar una licencia comercial de iText.** Permite distribuir sin
-publicar el código y sin la AGPL. Coste: la tarifa de iText Group NV
-(`sales@itextpdf.com`). Tiene sentido si el programa se va a vender o entregar a
-clientes como producto cerrado.
+Qué implica en la práctica:
 
-**Opción C — Dejarlo en uso estrictamente interno.** No distribuir el binario
-fuera de la organización y hacer el repositorio privado. No hace falta hacer
-nada más, pero cierra la puerta a compartirlo.
+- se puede entregar el ejecutable a quien sea, dentro y fuera de la
+  organización, sin pagar nada a iText;
+- quien reciba el programa tiene derecho a su código fuente, que está publicado;
+- quien lo modifique y lo distribuya debe mantener la AGPL y publicar sus
+  cambios;
+- si en el futuro se quisiera vender como producto cerrado, haría falta una
+  licencia comercial de iText Group NV (`sales@itextpdf.com`) y rehacer esta
+  decisión.
 
-Mientras no se decida, lo prudente es no entregar el ejecutable a terceros.
+Las alternativas que se descartaron fueron comprar la licencia comercial de
+iText, que solo tiene sentido para distribuir el programa cerrado, y dejarlo en
+uso estrictamente interno con el repositorio privado.
 
 ## El resto de dependencias no plantea problemas
 
@@ -76,9 +78,10 @@ Word corre por cuenta de quien lo use.
 
 ## Antes de distribuir, revisar
 
-- [ ] Elegir entre las opciones A, B y C y añadir el archivo `LICENSE` que
-      corresponda.
+- [x] Elegir la licencia del conjunto y añadir el archivo `LICENSE`.
 - [ ] Añadir un «Acerca de» en la ventana con la licencia y los avisos, para
-      cerrar del todo la sección 5 de la AGPL.
+      cerrar del todo la sección 5 de la AGPL. El ejecutable ya lleva el aviso
+      en sus metadatos, pero no se ve desde la interfaz.
 - [ ] Firmar los ejecutables con Authenticode: ver `firmar-ejecutables.ps1`.
+      Hace falta comprar un certificado de firma de código.
 - [ ] Auditoría DLL a DLL del runtime OCR si la distribución es externa.

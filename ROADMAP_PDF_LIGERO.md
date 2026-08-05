@@ -330,7 +330,9 @@ Distribución, cerrada el 5 de agosto de 2026:
   abortar. `desinstalar.bat` hace lo contrario. Los cuatro `.bat` anteriores se
   conservan como lanzadores para no romper accesos directos;
 - **revisión de licencias** completa en `LICENCIAS.md`, con la atribución que
-  debe acompañar a una copia en `THIRD-PARTY-NOTICES.md`;
+  debe acompañar a una copia en `THIRD-PARTY-NOTICES.md`. El proyecto se publica
+  bajo **AGPL v3** (`LICENSE`), que es lo coherente con incorporar iTextSharp y
+  tener el código publicado;
 - el ejecutable ya se identifica: producto, empresa, versión 1.0.0 y el aviso de
   copyright que pide la AGPL (`firma automática/AssemblyInfo.cs`);
 - **firma Authenticode** preparada y probada en `firmar-ejecutables.ps1`, con
@@ -350,14 +352,15 @@ Pendiente, con el motivo:
 - **ejecutar la firma Authenticode**: hace falta un certificado de firma de
   código, que hay que comprar. El del equipo es de firma de documentos y no
   sirve;
-- **elegir la licencia del repositorio**: es la decisión que queda abierta en
-  `LICENCIAS.md`.
+- **un «Acerca de» en la ventana** con la licencia y los avisos, para cerrar del
+  todo la sección 5 de la AGPL. El ejecutable ya lleva el aviso en sus
+  metadatos, pero no se ve desde la interfaz.
 
 ## Siguiente entrega
 
-De la fase 9 solo queda lo que depende de una compra o una decisión: el
-certificado de firma de código y la licencia del repositorio. La actualización
-de PDFium es un proyecto aparte, con el análisis ya hecho.
+De la fase 9 solo queda comprar el certificado de firma de código y añadir el
+«Acerca de». La actualización de PDFium es un proyecto aparte, con el análisis
+ya hecho.
 
 Como mejora funcional independiente queda reutilizar opcionalmente una posición
 normalizada de firma en lotes, confirmando cada PDF antes de firmarlo.

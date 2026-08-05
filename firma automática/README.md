@@ -2,6 +2,9 @@
 
 Aplicación de escritorio para Windows construida a partir de la herramienta de firma automática.
 
+Se distribuye bajo **AGPL v3**: ver `..\LICENSE`, `..\LICENCIAS.md` y
+`..\THIRD-PARTY-NOTICES.md`.
+
 La aplicación ya permite:
 
 - abrir uno o varios PDF rápidamente en pestañas dentro de la misma ventana;

@@ -7,9 +7,11 @@
 > salvo lo que depende de una compra o una decisión: endurecimiento transversal
 > de PDFs protegidos, instalador único, revisión de licencias y firma
 > Authenticode preparada.  
-> **Siguiente prioridad:** comprar el certificado de firma de código, elegir la
-> licencia del repositorio (ver `LICENCIAS.md`) y, como proyecto aparte,
-> bifurcar PdfiumViewer si se quiere actualizar PDFium.  
+> **Licencia:** AGPL v3, decidido el 5 de agosto de 2026 (`LICENSE`), por
+> incorporar iTextSharp 5.  
+> **Siguiente prioridad:** comprar el certificado de firma de código, añadir un
+> «Acerca de» en la ventana y, como proyecto aparte, bifurcar PdfiumViewer si se
+> quiere actualizar PDFium.  
 > **Regla de lectura:** cuando este archivo y una suposición entren en conflicto,
 > comprobar primero el código y los informes de QA. Las casillas pendientes de
 > la sección 12 son el protocolo para trabajos futuros, no tareas abiertas de
@@ -179,11 +181,15 @@ El código debe mantenerse compatible con C# 5 y .NET Framework:
 - PdfiumViewer Native x86_64 v8-xfa `2018.4.8.256`;
 - Tesseract OCR local `5.5`, con `spa`, `eng` y `osd`.
 
-iTextSharp 5 se distribuye bajo AGPL. La revisión completa está en
-`LICENCIAS.md` y la atribución que debe acompañar a una copia, en
-`THIRD-PARTY-NOTICES.md`. Resumen: el uso interno no obliga a nada; distribuir
-el programa sí, y hay que elegir entre publicarlo bajo AGPL v3 o comprar una
-licencia comercial de iText.
+iTextSharp 5 se distribuye bajo AGPL, y por eso **el proyecto se publica bajo
+AGPL v3** (`LICENSE`). El código fuente publicado es justo lo que la licencia
+exige a cambio de poder distribuir el programa sin pagar a iText. La revisión
+completa está en `LICENCIAS.md` y la atribución que debe acompañar a una copia,
+en `THIRD-PARTY-NOTICES.md`.
+
+El requisito de la sección 7(b) —conservar la línea `Producer` de iText— ya se
+cumplía y está verificado en código por `IsExpectedProducerTransition`. No
+tocarlo al modificar `PdfTextEditService`.
 
 ### PDFium está congelado y no es cuestión de pereza
 

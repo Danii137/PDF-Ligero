@@ -127,11 +127,14 @@ DESINSTALACION
    "uninstall_pdf_ligero.bat" retira solo PDF Ligero.
    No se borra ningun archivo: solo se deshace el registro del menu contextual.
 
-LICENCIAS
----------
-PDF Ligero incorpora iTextSharp, que es software AGPL v3. Usarlo dentro de la
-organizacion no obliga a nada. Distribuirlo a terceros si: hay que publicar el
-codigo bajo AGPL o comprar una licencia comercial de iText.
+LICENCIA
+--------
+PDF Ligero y Word2PDF se distribuyen bajo la Licencia Publica General Affero de
+GNU, version 3 (AGPL v3). El texto completo esta en "LICENSE".
+
+El motivo es que el programa incorpora iTextSharp, que es AGPL. El codigo fuente
+esta publicado en https://github.com/Danii137/PDF-Ligero, que es lo que la
+licencia exige a cambio de poder distribuir el programa libremente.
 
 El detalle esta en "LICENCIAS.md" y la atribucion de terceros en
 "THIRD-PARTY-NOTICES.md".
