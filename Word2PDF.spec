@@ -85,6 +85,11 @@ exe = EXE(
     debug=False,
     strip=False,
     upx=False,
-    console=True,
+    # Sin consola propia. Es lo que evita que salgan veinte ventanas al
+    # convertir veinte archivos: el Explorador lanza un proceso por archivo y,
+    # compilado como aplicacion de consola, Windows le daba una ventana a cada
+    # uno antes incluso de ejecutar el codigo. Ahora solo el proceso que
+    # realmente convierte crea la suya, con AllocConsole en ensure_console().
+    console=False,
     icon=icono_app,
 )

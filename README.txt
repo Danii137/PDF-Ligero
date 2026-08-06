@@ -142,7 +142,12 @@ medias quedaria cambiada sin avisar.
 NOTAS
 -----
 - El instalador registra el menu contextual para .doc, .docx y .rtf.
-- Si seleccionas varios archivos, Windows lanza varias llamadas y la app las agrupa automaticamente.
+- Si seleccionas varios archivos, Windows lanza una llamada por archivo, pero
+  solo aparece UNA ventana: el primer proceso se queda con el trabajo y los
+  demas le pasan su archivo y salen sin mostrar nada.
+- Esa unica ventana muestra el archivo que esta convirtiendo, la lista de los
+  que lleva hechos y, al terminar, el resumen. Se queda abierta hasta que la
+  cierres.
 - Si un archivo falla, revisa el log en el Escritorio: "word2pdf_log.txt".
 - La conversion usa Microsoft Word directamente, por eso sirve tambien para RTF.
 - El lote maximo por ejecucion es 50 archivos. Se convierten de uno en uno para no saturar el equipo.

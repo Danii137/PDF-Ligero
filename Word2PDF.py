@@ -23,6 +23,12 @@ from PyQt5.QtWidgets import (
 HOST = "127.0.0.1"
 PORT = 65432
 IDLE_TIMEOUT_SECONDS = 3.0
+
+# Reintentos de una instancia secundaria al pasar sus archivos a la principal.
+# El Explorador lanza todos los procesos a la vez y el que gana el puerto tarda
+# un momento en ponerse a escuchar.
+CLIENT_CONNECT_ATTEMPTS = 24
+CLIENT_RETRY_SECONDS = 0.25
 LOG_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "word2pdf_log.txt")
 ALLOWED_EXTENSIONS = {".doc", ".docx", ".rtf"}
 PDF_FILE_FORMAT = 17
@@ -69,6 +75,30 @@ ICON_BIG = 1
 # Windows no se queda con una copia del icono: hay que conservar los handles
 # vivos mientras exista la ventana.
 _console_icon_handles = []
+
+
+class _SalidaNula:
+    """Descarta lo que se escriba. Ver la nota de abajo."""
+
+    def write(self, _texto):
+        return 0
+
+    def flush(self):
+        pass
+
+    def isatty(self):
+        return False
+
+
+# Compilado sin consola propia, Python arranca con sys.stdout y sys.stderr a
+# None, y cualquier print reventaria. Los procesos que solo pasan su archivo al
+# que ya esta convirtiendo no llegan a crear consola nunca, asi que necesitan
+# este destino vacio. ensure_console() los sustituye por la consola real cuando
+# hace falta de verdad.
+if sys.stdout is None:
+    sys.stdout = _SalidaNula()
+if sys.stderr is None:
+    sys.stderr = _SalidaNula()
 
 
 def resource_path(relative_name):
@@ -138,30 +168,61 @@ def has_console():
 
 
 def ensure_console():
+    """Crea la ventana de conversion si este proceso todavia no tiene una.
+
+    Solo la llama el proceso que realmente convierte. Los demas pasan sus
+    archivos y salen sin enseñar nada, que es lo que evita que aparezcan tantas
+    ventanas como documentos.
+    """
     if has_console():
+        log("Ya habia consola disponible; no se crea otra.")
         return
 
     if not ctypes.windll.kernel32.AllocConsole():
+        log("AllocConsole fallo: se convierte sin ventana.")
         return
 
-    sys.stdout = open("CONOUT$", "w", encoding="utf-8", buffering=1)
-    sys.stderr = open("CONOUT$", "w", encoding="utf-8", buffering=1)
-    sys.stdin = open("CONIN$", "r", encoding="utf-8", errors="ignore")
+    try:
+        sys.stdout = open("CONOUT$", "w", encoding="utf-8", buffering=1)
+        sys.stderr = open("CONOUT$", "w", encoding="utf-8", buffering=1)
+        sys.stdin = open("CONIN$", "r", encoding="utf-8", errors="ignore")
+    except OSError as exc:
+        # Sin salida no se puede escribir, pero convertir si: mejor seguir.
+        log(f"No se pudieron abrir los flujos de la consola: {exc}")
+        return
+
     ctypes.windll.kernel32.SetConsoleTitleW(CONSOLE_TITLE)
     apply_console_icon()
+    log("Ventana de conversion creada.")
 
 
 def pause_console():
+    """Deja la ventana abierta hasta que la persona la cierre.
+
+    msvcrt.getch() no bloquea de forma fiable cuando la consola se creo con
+    AllocConsole desde una aplicacion sin consola propia: el runtime de C ya
+    tenia sus descriptores resueltos. Se lee del CONIN$ que abrio
+    ensure_console(), que si esta bien enlazado, y getch queda de reserva.
+    """
     if not has_console():
         return
 
     print("")
     print(FAREWELL_MESSAGE)
-    print("Pulsa una tecla para cerrar...")
+    print("Pulsa Enter para cerrar esta ventana...")
+
+    try:
+        if sys.stdin is not None and not isinstance(sys.stdin, _SalidaNula):
+            sys.stdin.readline()
+            return
+    except Exception as exc:
+        log(f"No se pudo esperar en la consola: {exc}")
+
     try:
         msvcrt.getch()
     except Exception:
-        os.system("pause")
+        # Ultimo recurso: al menos que no se cierre de golpe.
+        time.sleep(20)
 
 
 def normalize_candidates(paths):
@@ -294,7 +355,8 @@ def validate_batch_size(paths):
         f"El maximo permitido por lote es {MAX_BATCH_FILES} para no saturar el equipo.\n"
         "Reduce la seleccion y vuelve a intentarlo."
     )
-    print(message)
+    # Sin print: en este punto todavia no hay consola, y el aviso ya se ve en el
+    # cuadro de dialogo.
     log(f"Lote rechazado por exceso de archivos: {len(paths)}")
     show_error_dialog(APP_NAME, message)
     return False
@@ -349,17 +411,32 @@ def run_cli(paths):
     except OSError:
         server_socket.close()
 
+    if is_server:
+        log(f"Instancia principal: convierte {len(initial_files)} archivo(s).")
+    else:
+        log("Instancia secundaria: pasa sus archivos a la principal.")
+
     if not is_server:
-        try:
-            payload = "\n".join(initial_files).encode("utf-8")
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
-                client_socket.connect((HOST, PORT))
-                client_socket.sendall(payload)
-            return 0
-        except OSError:
-            log("No fue posible conectar con la instancia principal. Se procesara localmente.")
-            ensure_console()
-            return process_queue(initial_files, server_socket=None)
+        # Se reintenta porque la principal puede estar todavia arrancando: el
+        # Explorador lanza todos los procesos a la vez y el que gana el puerto
+        # tarda un momento en ponerse a escuchar.
+        payload = "\n".join(initial_files).encode("utf-8")
+        for intento in range(CLIENT_CONNECT_ATTEMPTS):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+                    client_socket.settimeout(2.0)
+                    client_socket.connect((HOST, PORT))
+                    client_socket.sendall(payload)
+                return 0
+            except OSError:
+                if intento + 1 < CLIENT_CONNECT_ATTEMPTS:
+                    time.sleep(CLIENT_RETRY_SECONDS)
+
+        # Nadie contesto: se convierte aqui mismo, con su propia ventana. Es
+        # preferible una ventana de mas a perder los archivos.
+        log("No contesto la instancia principal. Se convierte en este proceso.")
+        ensure_console()
+        return process_queue(initial_files, server_socket=None)
 
     ensure_console()
     return process_queue(initial_files, server_socket=server_socket)
@@ -402,8 +479,9 @@ def process_queue(initial_files, server_socket=None):
         listener = threading.Thread(target=connection_listener, daemon=True)
         listener.start()
 
-    print("=== Conversor Word a PDF ===")
-    print("Procesando archivos...")
+    print(f"=== {APP_NAME} · Convertir a PDF ===")
+    print("")
+    print("Iniciando...")
     print("")
 
     successful = []
@@ -413,22 +491,43 @@ def process_queue(initial_files, server_socket=None):
     # lleguen despues por el socket.
     converter = WordPdfConverter()
 
+    # El hilo que recibe archivos y el bucle que convierte corren a la vez, asi
+    # que un archivo puede llegar justo cuando el bucle iba a terminar. Para no
+    # perderlo se cierra primero la escucha y solo despues se sale, dando una
+    # ultima vuelta que vacia lo que hubiera entrado. Quien llegue mas tarde se
+    # encontrara el puerto libre y se convertira a si mismo.
+    escucha_cerrada = server_socket is None
+
     try:
         while True:
             try:
                 current_file = file_queue.get(timeout=0.5)
             except queue.Empty:
-                if time.time() - last_activity > IDLE_TIMEOUT_SECONDS:
-                    break
-                continue
+                if time.time() - last_activity <= IDLE_TIMEOUT_SECONDS:
+                    continue
+
+                if not escucha_cerrada:
+                    server_socket.close()
+                    escucha_cerrada = True
+                    log("Cerrada la escucha; vaciando lo que quede en la cola.")
+                    last_activity = time.time()
+                    continue
+
+                break
+
+            numero = len(successful) + len(failed) + 1
+            nombre = os.path.basename(current_file)
+            # Se anuncia antes de convertir para que se vea en que archivo esta,
+            # no solo los que ya termino.
+            print(f"[{numero}] Convirtiendo  {nombre}")
 
             try:
                 output_file = convert_single_file(current_file, converter)
                 successful.append(output_file)
-                print(f"OK: {os.path.basename(current_file)} -> {os.path.basename(output_file)}")
+                print(f"     hecho     {os.path.basename(output_file)}")
             except Exception as exc:
                 failed.append((current_file, str(exc)))
-                print(f"ERROR: {os.path.basename(current_file)} -> {exc}")
+                print(f"     ERROR     {exc}")
                 log(f"ERROR convirtiendo {current_file}: {exc}")
             finally:
                 file_queue.task_done()
@@ -440,7 +539,7 @@ def process_queue(initial_files, server_socket=None):
         print_summary(successful, failed)
     finally:
         converter.close()
-        if server_socket is not None:
+        if server_socket is not None and not escucha_cerrada:
             server_socket.close()
 
     log(f"Proceso finalizado. Correctos={len(successful)} Fallos={len(failed)}")
