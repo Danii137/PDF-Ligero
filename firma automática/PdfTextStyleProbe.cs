@@ -303,7 +303,12 @@ namespace FirmaAutomatica
         /// escalada por la matriz de texto, y el descriptor de la fuente dice
         /// cuanto mide esa distancia para un cuerpo de 1 punto.
         /// </summary>
-        private static float MeasureFontSize(
+        internal static float MeasureFontSize(TextRenderInfo renderInfo)
+        {
+            return MeasureFontSize(renderInfo, renderInfo.GetFont());
+        }
+
+        internal static float MeasureFontSize(
             TextRenderInfo renderInfo,
             DocumentFont font)
         {
@@ -337,7 +342,7 @@ namespace FirmaAutomatica
             return alto / porUnidad;
         }
 
-        private static bool IsEmbedded(DocumentFont font)
+        internal static bool IsEmbedded(DocumentFont font)
         {
             try
             {
@@ -396,7 +401,7 @@ namespace FirmaAutomatica
             return primero.GetAsDict(PdfName.FONTDESCRIPTOR);
         }
 
-        private static bool LooksBold(string nombre, DocumentFont font)
+        internal static bool LooksBold(string nombre, DocumentFont font)
         {
             if (ContainsToken(nombre, "bold") ||
                 ContainsToken(nombre, "black") ||
@@ -427,7 +432,7 @@ namespace FirmaAutomatica
             return false;
         }
 
-        private static bool LooksItalic(string nombre, DocumentFont font)
+        internal static bool LooksItalic(string nombre, DocumentFont font)
         {
             if (ContainsToken(nombre, "italic") ||
                 ContainsToken(nombre, "oblique"))
@@ -457,6 +462,20 @@ namespace FirmaAutomatica
         /// coma o al guion, que es como los PDF escriben "Calibri-Bold" o
         /// "Arial,BoldItalic".
         /// </summary>
+        /// <summary>Quita el prefijo "ABCDEF+" de un nombre de subconjunto.</summary>
+        internal static string CleanSubsetPrefix(string nombre)
+        {
+            return string.IsNullOrEmpty(nombre)
+                ? string.Empty
+                : SubsetPrefix.Replace(nombre, string.Empty);
+        }
+
+        /// <summary>El nombre delata que la fuente viaja como subconjunto.</summary>
+        internal static bool IsSubset(string nombre)
+        {
+            return !string.IsNullOrEmpty(nombre) && SubsetPrefix.IsMatch(nombre);
+        }
+
         internal static string CleanFamilyName(string nombre)
         {
             if (string.IsNullOrEmpty(nombre))
@@ -489,7 +508,7 @@ namespace FirmaAutomatica
             return familia.Trim();
         }
 
-        private static Color ToColor(BaseColor color)
+        internal static Color ToColor(BaseColor color)
         {
             if (color == null)
             {

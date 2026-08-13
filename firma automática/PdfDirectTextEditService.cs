@@ -196,7 +196,7 @@ namespace FirmaAutomatica
 
             var texto = replacement.ReplacementText ?? string.Empty;
             var faltan = GlifosQueFaltan(seleccion.Fuente, texto);
-            var enSitio = faltan.Length == 0;
+            var enSitio = faltan.Length == 0 && !replacement.ForceSystemFont;
 
             byte[] nuevaCadena = null;
             if (enSitio && texto.Length > 0)
@@ -256,10 +256,13 @@ namespace FirmaAutomatica
                         replacement.TextColor.R,
                         replacement.TextColor.G,
                         replacement.TextColor.B));
+                // El tamano pedido manda; el del original solo es el
+                // respaldo cuando no se indica ninguno.
+                var tamano = replacement.FontSizePoints > 0.5F
+                    ? replacement.FontSizePoints
+                    : seleccion.TamanoFuente;
                 canvas.BeginText();
-                canvas.SetFontAndSize(
-                    resolved.BaseFont,
-                    seleccion.TamanoFuente);
+                canvas.SetFontAndSize(resolved.BaseFont, tamano);
                 canvas.SetTextMatrix(seleccion.OrigenX, seleccion.OrigenY);
                 canvas.ShowText(texto);
                 canvas.EndText();

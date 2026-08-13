@@ -109,6 +109,30 @@ Cada pestaña conserva su propia consulta, coincidencia activa y posición. Al
 escribir, la aplicación no busca ni recorre el documento: el trabajo empieza
 únicamente al pulsar `Enter`.
 
+## Editar el texto directamente sobre la página
+
+Pulsa el botón `Editar` de la barra derecha o `Ctrl+Mayús+E`. Las líneas de texto
+se recuadran y basta pinchar una para escribir encima, como en cualquier editor
+de PDF conocido.
+
+Al pinchar aparece el texto de esa línea listo para cambiarlo y una barra
+flotante con **fuente, tamaño, negrita, cursiva y color**. `Enter` o `Aplicar`
+guardan el cambio; `Esc` o `Cancelar` lo dejan como estaba. Pinchar fuera
+también aplica, como en un procesador de textos.
+
+El texto anterior se elimina del documento, no se tapa. Si solo cambias las
+palabras y la fuente incrustada las cubre, se sustituye conservando esa misma
+fuente. Si cambias el tamaño, el color o la tipografía, o escribes caracteres
+que la fuente incrustada no trae, se reescribe con esa fuente instalada en
+Windows.
+
+Cada cambio crea una revisión, así que `Ctrl+Z` deshace. El original no se toca.
+
+Se trabaja **línea a línea** a propósito: una línea se corresponde con un grupo
+concreto de instrucciones del PDF, que es lo que se puede sustituir sin riesgo.
+Un párrafo entero obligaría a recomponer el reparto entre líneas, y el formato
+PDF no lo hace solo.
+
 ## Editar texto y rellenar formularios
 
 Pulsa `T` en la barra derecha para elegir una de las dos acciones. `Ctrl+E`

@@ -75,6 +75,7 @@ namespace FirmaAutomatica
         private readonly Button compareToolButton;
         private readonly Button measureToolButton;
         private readonly Button annotateToolButton;
+        private readonly Button inlineEditToolButton;
         private ToolStripMenuItem annotateMenuItem;
         private readonly Button moreToolButton;
         private readonly ContextMenuStrip contentEditMenu;
@@ -468,6 +469,10 @@ namespace FirmaAutomatica
                 MeasureToolButton_Click);
             measureToolButton.Font =
                 CreateArchitecturalFont(11.5f, true);
+            inlineEditToolButton = CreateToolButton(
+                "\uE932",
+                "Editar el texto de la página (Ctrl+Mayús+E)",
+                InlineEditToolButton_Click);
             annotateToolButton = CreateToolButton(
                 "\uE891",
                 "Anotar: rotulador, subrayador y notas (Ctrl+Mayús+A)",
@@ -485,6 +490,7 @@ namespace FirmaAutomatica
             toolRail.Controls.Add(mergeToolButton);
             toolRail.Controls.Add(compareToolButton);
             toolRail.Controls.Add(measureToolButton);
+            toolRail.Controls.Add(inlineEditToolButton);
             toolRail.Controls.Add(annotateToolButton);
             toolRail.Controls.Add(moreToolButton);
 
@@ -1202,6 +1208,308 @@ namespace FirmaAutomatica
             BeginPlanComparison();
         }
 
+        private void InlineEditToolButton_Click(object sender, EventArgs e)
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace != null &&
+                workspace.InlineEdit != null &&
+                workspace.InlineEdit.IsActive)
+            {
+                workspace.InlineEdit.Deactivate();
+                RefreshToolAvailability();
+                workspace.Viewer.Focus();
+                return;
+            }
+
+            if (workspace == null ||
+                IsPageStructureOperationInProgress)
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            CancelRectangleZoom(workspace);
+            if (searchPanel.Visible)
+            {
+                CloseSearchPanel();
+            }
+            if (workspace.Measurement != null && workspace.Measurement.IsActive)
+            {
+                workspace.Measurement.Deactivate();
+            }
+            if (workspace.Annotation != null && workspace.Annotation.IsActive)
+            {
+                workspace.Annotation.Deactivate();
+            }
+
+            try
+            {
+                if (workspace.InlineEdit == null)
+                {
+                    var destino = workspace;
+                    workspace.InlineEdit = new PdfInlineTextEditController(
+                        workspace.Viewer.Renderer,
+                        delegate { return CanActivateInlineEdit(destino); },
+                        delegate(int pagina)
+                        {
+                            return LoadTextBlocks(destino, pagina);
+                        },
+                        delegate(string mensaje)
+                        {
+                            documentLabel.Text = mensaje;
+                        });
+                    workspace.InlineEdit.EditRequested +=
+                        InlineEdit_EditRequested;
+                }
+
+                workspace.InlineEdit.Activate();
+                RefreshToolAvailability();
+                workspace.Viewer.Renderer.Focus();
+            }
+            catch (Exception ex)
+            {
+                DisposeWorkspaceInlineEdit(workspace);
+                RefreshToolAvailability();
+                AppLog.Write("No se pudo iniciar la edición de texto: " + ex);
+                ShowPdfProblem(
+                    "Editar texto",
+                    "No se pudo iniciar la edición.",
+                    "El PDF original no se ha modificado.",
+                    ex,
+                    workspace == null ? null : workspace.ContentPath);
+            }
+        }
+
+        private bool CanActivateInlineEdit(PdfWorkspace workspace)
+        {
+            return workspace != null &&
+                workspace == activeWorkspace &&
+                workspace.IsLoaded &&
+                !workspace.IsDisposed &&
+                workspace.Document != null &&
+                !workspace.IsPasswordProtected &&
+                comparisonSurface == null &&
+                !searchPanel.Visible &&
+                !pageInsertInProgress &&
+                !pageOrganizationInProgress &&
+                !ocrInProgress &&
+                !bookmarkEditInProgress &&
+                !contentEditInProgress &&
+                !IsTextEditSelectionActive &&
+                !activatingWorkspace &&
+                !closingAll;
+        }
+
+        /// <summary>
+        /// Lee las lineas de texto de una pagina. Se abre y se cierra el lector
+        /// en cada consulta a proposito: el controlador las guarda en memoria y
+        /// solo pregunta una vez por pagina.
+        /// </summary>
+        private IList<PdfTextBlock> LoadTextBlocks(
+            PdfWorkspace workspace,
+            int pageNumber)
+        {
+            if (workspace == null ||
+                string.IsNullOrEmpty(workspace.ContentPath) ||
+                !File.Exists(workspace.ContentPath))
+            {
+                return new List<PdfTextBlock>();
+            }
+
+            iTextSharp.text.pdf.PdfReader reader = null;
+            try
+            {
+                reader = new iTextSharp.text.pdf.PdfReader(
+                    workspace.ContentPath);
+                return PdfTextBlockLocator.Locate(reader, pageNumber);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("No se pudieron leer las líneas de texto: " + ex);
+                return new List<PdfTextBlock>();
+            }
+            finally
+            {
+                if (reader != null)
+                {
+                    reader.Close();
+                }
+            }
+        }
+
+        private void InlineEdit_EditRequested(
+            object sender,
+            PdfInlineEditEventArgs e)
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null || e == null || e.Request == null)
+            {
+                return;
+            }
+
+            var peticion = e.Request;
+            var bloque = peticion.Block;
+            var editSession = workspace.EditSession;
+            var sourcePath = workspace.ContentPath;
+            string outputPath = null;
+
+            contentEditInProgress = true;
+            RefreshToolAvailability();
+            try
+            {
+                PdfTextEditAnalysis analysis = null;
+                PdfTextEditRegion region = null;
+                using (var progress = new PdfBackgroundOperationForm(
+                    "Editar texto",
+                    "Leyendo la línea seleccionada…",
+                    delegate
+                    {
+                        var preparation = PdfTextEditService.PrepareSelection(
+                            sourcePath,
+                            bloque.PageNumber - 1,
+                            bloque.Bounds,
+                            editSession.CurrentViewIdentity);
+                        analysis = preparation.Analysis;
+                        region = preparation.Region;
+                    }))
+                {
+                    progress.Run(this);
+                }
+
+                if (analysis == null || region == null)
+                {
+                    return;
+                }
+                if (!analysis.OpenedWithFullPermissions)
+                {
+                    throw new UnauthorizedAccessException(
+                        "El PDF está protegido y no permite editar su contenido.");
+                }
+                if (analysis.ContainsXfa)
+                {
+                    throw new NotSupportedException(
+                        PdfTextEditService.XfaUnsupportedMessage);
+                }
+                if (analysis.ContainsDigitalSignatures)
+                {
+                    var answer = MessageBox.Show(
+                        this,
+                        "Este PDF contiene firmas digitales.\r\n\r\n" +
+                        PdfTextEditService.DigitalSignatureWarning +
+                        "\r\n\r\n¿Quieres continuar y crear una revisión nueva?",
+                        "Editar un PDF firmado",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Warning,
+                        MessageBoxDefaultButton.Button2);
+                    if (answer != DialogResult.Yes)
+                    {
+                        return;
+                    }
+                }
+
+                var replacement = new PdfTextReplacement(
+                    region,
+                    peticion.NewText)
+                {
+                    ReplaceInPlace = true,
+                    // Cambiar el formato obliga a reescribir con una fuente del
+                    // sistema: sustituir la cadena conservaria el formato viejo.
+                    ForceSystemFont = peticion.FormatChanged,
+                    PreferredFontName = peticion.FontName,
+                    FontFamily = PdfSystemFontCatalog.GuessFamily(
+                        peticion.FontName),
+                    Bold = peticion.Bold,
+                    Italic = peticion.Italic,
+                    FontSizePoints = peticion.FontSizePoints,
+                    MinimumFontSizePoints = 4F,
+                    AutoFit = false,
+                    TextColor = peticion.Color,
+                    CoverOriginal = false,
+                    PaddingPoints = 0F
+                };
+
+                long estimado;
+                try
+                {
+                    estimado = checked(
+                        Math.Max(0L, analysis.SourceLength) +
+                        (2L * 1024L * 1024L));
+                }
+                catch (OverflowException)
+                {
+                    estimado = long.MaxValue;
+                }
+
+                outputPath = editSession.ReserveRevisionPath(estimado);
+                using (var progress = new PdfBackgroundOperationForm(
+                    "Editar texto",
+                    "Sustituyendo el texto…",
+                    delegate
+                    {
+                        PdfTextEditService.Save(
+                            sourcePath,
+                            outputPath,
+                            analysis,
+                            replacement);
+                    }))
+                {
+                    progress.Run(this);
+                }
+
+                ApplyContentRevision(
+                    workspace,
+                    editSession,
+                    sourcePath,
+                    outputPath,
+                    bloque.PageNumber - 1,
+                    "Editar texto",
+                    "Texto sustituido. El original no se ha modificado.");
+                outputPath = null;
+
+                if (workspace.InlineEdit != null)
+                {
+                    workspace.InlineEdit.InvalidateBlocks();
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("No se pudo sustituir el texto: " + ex);
+                ShowPdfProblem(
+                    "Editar texto",
+                    "No se pudo sustituir el texto.",
+                    "El PDF original no se ha modificado.",
+                    ex,
+                    sourcePath);
+            }
+            finally
+            {
+                if (!string.IsNullOrWhiteSpace(outputPath) &&
+                    !string.Equals(
+                        editSession.CurrentPath,
+                        outputPath,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    editSession.CancelReservedRevision(outputPath);
+                }
+
+                contentEditInProgress = false;
+                RefreshToolAvailability();
+            }
+        }
+
+        private void DisposeWorkspaceInlineEdit(PdfWorkspace workspace)
+        {
+            if (workspace == null || workspace.InlineEdit == null)
+            {
+                return;
+            }
+
+            var controller = workspace.InlineEdit;
+            workspace.InlineEdit = null;
+            controller.EditRequested -= InlineEdit_EditRequested;
+            controller.Dispose();
+        }
+
         private void AnnotateToolButton_Click(object sender, EventArgs e)
         {
             var workspace = GetLoadedActiveWorkspace();
@@ -1269,6 +1577,7 @@ namespace FirmaAutomatica
             catch (Exception ex)
             {
                 DisposeWorkspaceAnnotation(workspace);
+            DisposeWorkspaceInlineEdit(workspace);
                 RefreshToolAvailability();
                 AppLog.Write("No se pudo iniciar la anotación: " + ex);
                 ShowPdfProblem(
@@ -8200,6 +8509,17 @@ namespace FirmaAutomatica
             if (e.Control &&
                 e.Shift &&
                 !e.Alt &&
+                e.KeyCode == Keys.E)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                InlineEditToolButton_Click(sender, EventArgs.Empty);
+                return;
+            }
+
+            if (e.Control &&
+                e.Shift &&
+                !e.Alt &&
                 e.KeyCode == Keys.A)
             {
                 e.Handled = true;
@@ -8686,6 +9006,40 @@ namespace FirmaAutomatica
                 measurementActive
                     ? "Cerrar medición (Esc)"
                     : "Medir plano (Ctrl+Mayús+M)");
+
+            var inlineEditActive = activeWorkspace != null &&
+                activeWorkspace.InlineEdit != null &&
+                activeWorkspace.InlineEdit.IsActive;
+            inlineEditToolButton.Enabled =
+                inlineEditActive ||
+                (hasLoadedDocument &&
+                 !protectedDocument &&
+                 !comparisonActive &&
+                 !measurementActive &&
+                 !pageInsertInProgress &&
+                 !pageOrganizationInProgress &&
+                 !ocrInProgress &&
+                 !bookmarkEditInProgress &&
+                 !contentEditInProgress &&
+                 !textEditSelectionActive &&
+                 !activatingWorkspace &&
+                 !closingAll);
+            inlineEditToolButton.Text =
+                inlineEditActive ? "\u00D7" : "\uE932";
+            inlineEditToolButton.AccessibleName = inlineEditActive
+                ? "Cerrar la edición de texto"
+                : "Editar el texto de la página";
+            inlineEditToolButton.BackColor = inlineEditActive
+                ? AccentTintColor
+                : HeaderBackgroundColor;
+            inlineEditToolButton.ForeColor = inlineEditActive
+                ? AccentTextColor
+                : (inlineEditToolButton.Enabled ? TitleColor : MutedColor);
+            toolTip.SetToolTip(
+                inlineEditToolButton,
+                inlineEditActive
+                    ? "Cerrar la edición de texto (Esc)"
+                    : "Editar el texto de la página (Ctrl+Mayús+E)");
 
             var annotationActive = activeWorkspace != null &&
                 activeWorkspace.Annotation != null &&
@@ -9571,6 +9925,8 @@ namespace FirmaAutomatica
             public PdfMeasurementController Measurement;
 
             public PdfAnnotationController Annotation;
+
+            public PdfInlineTextEditController InlineEdit;
             public Panel NavigationPanel;
             public Panel NavigationHeader;
             public Button PagesButton;

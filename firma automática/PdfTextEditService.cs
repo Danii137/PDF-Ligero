@@ -199,6 +199,14 @@ namespace FirmaAutomatica
         /// </summary>
         public bool ReplaceInPlace { get; set; }
 
+        /// <summary>
+        /// Obliga a reescribir el texto con una fuente del sistema aunque la
+        /// incrustada bastara. Hace falta cuando se cambia la tipografia, el
+        /// tamano o el color: sustituir la cadena en el sitio conserva el
+        /// formato anterior, asi que el cambio pasaria desapercibido.
+        /// </summary>
+        public bool ForceSystemFont { get; set; }
+
         public float FontSizePoints { get; set; }
 
         public float MinimumFontSizePoints { get; set; }
