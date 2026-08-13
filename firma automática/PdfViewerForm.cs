@@ -1411,6 +1411,7 @@ namespace FirmaAutomatica
             PdfTextEditRegion region = null;
             string detectedText = string.Empty;
             string extractError = string.Empty;
+            PdfTextStyle detectedStyle = null;
             string outputPath = null;
 
             contentEditInProgress = true;
@@ -1432,6 +1433,7 @@ namespace FirmaAutomatica
                         region = preparation.Region;
                         detectedText = preparation.ExtractedText;
                         extractError = preparation.ExtractionError;
+                        detectedStyle = preparation.DetectedStyle;
                     }))
                 {
                     progress.Run(this);
@@ -1491,6 +1493,9 @@ namespace FirmaAutomatica
                     detectedText = detectedText.Substring(0, 12000);
                 }
 
+                // La tipografia leida del propio PDF llega preseleccionada, para
+                // que el reemplazo se parezca al resto de la pagina sin tener
+                // que acertarla a ojo.
                 var initialState = new PdfTextEditDialogState
                 {
                     Text = detectedText ?? string.Empty,
@@ -1498,6 +1503,26 @@ namespace FirmaAutomatica
                     AutoFit = true,
                     FontSizePoints = 11M
                 };
+                if (detectedStyle != null &&
+                    !string.IsNullOrEmpty(detectedStyle.FontName))
+                {
+                    initialState.DetectedFontName = detectedStyle.FontName;
+                    initialState.DetectedDescription = detectedStyle.Describe();
+                    initialState.BaseFontName = detectedStyle.FontName;
+                    initialState.Bold = detectedStyle.Bold;
+                    initialState.Italic = detectedStyle.Italic;
+                    initialState.TextColor = detectedStyle.Color;
+                    if (detectedStyle.FontSizePoints >= 4F &&
+                        detectedStyle.FontSizePoints <= 144F)
+                    {
+                        initialState.FontSizePoints = Math.Round(
+                            (decimal)detectedStyle.FontSizePoints,
+                            1);
+                        // Con el tamaño real medido, encogerlo automaticamente
+                        // solo haria que dejase de parecerse al original.
+                        initialState.AutoFit = false;
+                    }
+                }
                 PdfTextEditDialogState selectedState;
                 using (var editor = new PdfTextEditDialog(
                     initialState,
@@ -1512,21 +1537,33 @@ namespace FirmaAutomatica
                     selectedState = editor.Result;
                 }
 
+                var usaDetectada = selectedState.UsesDetectedFont;
                 var replacement = new PdfTextReplacement(
                     region,
                     selectedState.Text)
                 {
-                    FontFamily = string.Equals(
-                            selectedState.BaseFontName,
-                            PdfTextEditDialogState.TimesFontName,
-                            StringComparison.Ordinal)
-                        ? PdfTextEditFontFamily.Serif
+                    // Con la fuente detectada, la familia generica sigue siendo
+                    // necesaria: es el respaldo si esa fuente no esta instalada
+                    // o no cubre alguno de los caracteres escritos.
+                    FontFamily = usaDetectada
+                        ? PdfSystemFontCatalog.GuessFamily(
+                            selectedState.BaseFontName)
                         : string.Equals(
                                 selectedState.BaseFontName,
-                                PdfTextEditDialogState.CourierFontName,
+                                PdfTextEditDialogState.TimesFontName,
                                 StringComparison.Ordinal)
-                            ? PdfTextEditFontFamily.Monospace
-                            : PdfTextEditFontFamily.SansSerif,
+                            ? PdfTextEditFontFamily.Serif
+                            : string.Equals(
+                                    selectedState.BaseFontName,
+                                    PdfTextEditDialogState.CourierFontName,
+                                    StringComparison.Ordinal)
+                                ? PdfTextEditFontFamily.Monospace
+                                : PdfTextEditFontFamily.SansSerif,
+                    PreferredFontName = usaDetectada
+                        ? selectedState.BaseFontName
+                        : null,
+                    Bold = selectedState.Bold,
+                    Italic = selectedState.Italic,
                     FontSizePoints = (float)selectedState.FontSizePoints,
                     MinimumFontSizePoints = 4F,
                     AutoFit = selectedState.AutoFit,

@@ -26,11 +26,42 @@ namespace FirmaAutomatica
             CoverBackground = true;
             TextColor = Color.Black;
             CoverColor = Color.White;
+            DetectedFontName = string.Empty;
+            DetectedDescription = string.Empty;
         }
 
         public string Text { get; set; }
 
         public string BaseFontName { get; set; }
+
+        /// <summary>
+        /// Fuente que tenia el texto seleccionado, vacia si no se pudo leer.
+        /// Se ofrece como una opcion mas del desplegable, la primera.
+        /// </summary>
+        public string DetectedFontName { get; set; }
+
+        /// <summary>Resumen de la tipografia detectada, para enseñarlo.</summary>
+        public string DetectedDescription { get; set; }
+
+        public bool Bold { get; set; }
+
+        public bool Italic { get; set; }
+
+        /// <summary>
+        /// La persona dejo puesta la fuente detectada, asi que hay que
+        /// intentar escribir con ella.
+        /// </summary>
+        public bool UsesDetectedFont
+        {
+            get
+            {
+                return !string.IsNullOrEmpty(DetectedFontName) &&
+                    string.Equals(
+                        BaseFontName,
+                        DetectedFontName,
+                        StringComparison.Ordinal);
+            }
+        }
 
         public decimal FontSizePoints { get; set; }
 
@@ -49,7 +80,11 @@ namespace FirmaAutomatica
             return new PdfTextEditDialogState
             {
                 Text = Text ?? string.Empty,
-                BaseFontName = NormalizeBaseFontName(BaseFontName),
+                DetectedFontName = DetectedFontName ?? string.Empty,
+                DetectedDescription = DetectedDescription ?? string.Empty,
+                BaseFontName = NormalizeSelectedFont(BaseFontName),
+                Bold = Bold,
+                Italic = Italic,
                 FontSizePoints = ClampFontSize(FontSizePoints),
                 AutoFit = AutoFit,
                 Alignment = NormalizeAlignment(Alignment),
@@ -57,6 +92,24 @@ namespace FirmaAutomatica
                 TextColor = NormalizeColor(TextColor, Color.Black),
                 CoverColor = NormalizeColor(CoverColor, Color.White)
             };
+        }
+
+        /// <summary>
+        /// La fuente detectada es un valor valido mas del desplegable, ademas de
+        /// las tres genericas.
+        /// </summary>
+        private string NormalizeSelectedFont(string value)
+        {
+            if (!string.IsNullOrEmpty(DetectedFontName) &&
+                string.Equals(
+                    value,
+                    DetectedFontName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return DetectedFontName;
+            }
+
+            return NormalizeBaseFontName(value);
         }
 
         internal static string NormalizeBaseFontName(string value)
@@ -137,6 +190,9 @@ namespace FirmaAutomatica
 
         private readonly TextBox textInput;
         private readonly ComboBox fontSelector;
+        private readonly Label detectedStyleLabel;
+        private readonly CheckBox boldCheckBox;
+        private readonly CheckBox italicCheckBox;
         private readonly NumericUpDown fontSizeInput;
         private readonly CheckBox autoFitCheckBox;
         private readonly ComboBox alignmentSelector;
@@ -235,7 +291,7 @@ namespace FirmaAutomatica
                 Left = 18,
                 Top = 91,
                 Width = 602,
-                Height = 142,
+                Height = 112,
                 Multiline = true,
                 AcceptsReturn = true,
                 AcceptsTab = false,
@@ -250,11 +306,11 @@ namespace FirmaAutomatica
             };
             textInput.TextChanged += EditorValueChanged;
 
-            var fontLabel = CreateSectionLabel("FUENTE", 18, 245, 160);
+            var fontLabel = CreateSectionLabel("FUENTE", 18, 215, 160);
             fontSelector = new ComboBox
             {
                 Left = 18,
-                Top = 264,
+                Top = 234,
                 Width = 158,
                 Height = 28,
                 DropDownStyle = ComboBoxStyle.DropDownList,
@@ -263,26 +319,36 @@ namespace FirmaAutomatica
                 ForeColor = TitleColor,
                 AccessibleName = "Fuente del texto"
             };
+            // La fuente detectada en el PDF va la primera, para que el reemplazo
+            // se parezca al resto de la pagina sin tener que elegir nada.
+            if (!string.IsNullOrEmpty(state.DetectedFontName))
+            {
+                fontSelector.Items.Add(state.DetectedFontName);
+            }
             fontSelector.Items.AddRange(new object[]
             {
                 PdfTextEditDialogState.HelveticaFontName,
                 PdfTextEditDialogState.TimesFontName,
                 PdfTextEditDialogState.CourierFontName
             });
-            fontSelector.SelectedItem =
-                PdfTextEditDialogState.NormalizeBaseFontName(
-                    state.BaseFontName);
+            fontSelector.SelectedItem = state.BaseFontName;
+            if (fontSelector.SelectedItem == null)
+            {
+                fontSelector.SelectedItem =
+                    PdfTextEditDialogState.NormalizeBaseFontName(
+                        state.BaseFontName);
+            }
             fontSelector.SelectedIndexChanged += EditorValueChanged;
 
             var sizeLabel = CreateSectionLabel(
                 "TAMAÑO / PT",
                 190,
-                245,
+                215,
                 105);
             fontSizeInput = new NumericUpDown
             {
                 Left = 190,
-                Top = 264,
+                Top = 234,
                 Width = 92,
                 Height = 28,
                 Minimum = 4M,
@@ -302,7 +368,7 @@ namespace FirmaAutomatica
             autoFitCheckBox = new CheckBox
             {
                 Left = 294,
-                Top = 266,
+                Top = 236,
                 Width = 116,
                 Height = 25,
                 Text = "Ajuste automático",
@@ -319,12 +385,12 @@ namespace FirmaAutomatica
             var alignmentLabel = CreateSectionLabel(
                 "ALINEACIÓN",
                 424,
-                245,
+                215,
                 196);
             alignmentSelector = new ComboBox
             {
                 Left = 424,
-                Top = 264,
+                Top = 234,
                 Width = 196,
                 Height = 28,
                 DropDownStyle = ComboBoxStyle.DropDownList,
@@ -343,10 +409,54 @@ namespace FirmaAutomatica
                 AlignmentToIndex(state.Alignment);
             alignmentSelector.SelectedIndexChanged += EditorValueChanged;
 
+            // Tipografia leida del propio PDF. Se enseña siempre que se haya
+            // podido detectar, aunque despues se elija otra fuente a mano.
+            detectedStyleLabel = new Label
+            {
+                Left = 18,
+                Top = 266,
+                Width = 602,
+                Height = 15,
+                ForeColor = MutedColor,
+                Font = CreateUiFont(8f, FontStyle.Regular),
+                Text = string.IsNullOrEmpty(state.DetectedDescription)
+                    ? "No se ha podido leer la tipografía del texto original."
+                    : "Detectado: " + state.DetectedDescription,
+                AccessibleName = "Tipografía detectada en el texto original"
+            };
+
+            boldCheckBox = new CheckBox
+            {
+                Left = 18,
+                Top = 288,
+                Width = 84,
+                Height = 22,
+                Text = "Negrita",
+                Checked = state.Bold,
+                ForeColor = BodyColor,
+                FlatStyle = FlatStyle.Flat,
+                AccessibleName = "Texto en negrita"
+            };
+            boldCheckBox.CheckedChanged += EditorValueChanged;
+
+            italicCheckBox = new CheckBox
+            {
+                Left = 108,
+                Top = 288,
+                Width = 84,
+                Height = 22,
+                Text = "Cursiva",
+                Checked = state.Italic,
+                ForeColor = BodyColor,
+                FlatStyle = FlatStyle.Flat,
+                AccessibleName = "Texto en cursiva"
+            };
+            italicCheckBox.CheckedChanged += EditorValueChanged;
+
             coverBackgroundCheckBox = new CheckBox
             {
                 Left = 18,
-                Top = 303,
+                Top = 317,
                 Width = 360,
                 Height = 24,
                 Text = "Cubrir primero la zona con fondo blanco",
@@ -360,11 +470,11 @@ namespace FirmaAutomatica
             var textColorLabel = CreateSectionLabel(
                 "TEXTO",
                 385,
-                306,
+                320,
                 43);
             textColorButton = CreateColorButton(
                 431,
-                302,
+                316,
                 PdfTextEditDialogState.NormalizeColor(
                     state.TextColor,
                     Color.Black),
@@ -374,11 +484,11 @@ namespace FirmaAutomatica
             var coverColorLabel = CreateSectionLabel(
                 "FONDO",
                 475,
-                306,
+                320,
                 48);
             coverColorButton = CreateColorButton(
                 526,
-                302,
+                316,
                 PdfTextEditDialogState.NormalizeColor(
                     state.CoverColor,
                     Color.White),
@@ -388,14 +498,14 @@ namespace FirmaAutomatica
             var previewLabel = CreateSectionLabel(
                 "VISTA PREVIA DEL ESTILO",
                 18,
-                337,
+                351,
                 300);
             preview = new TextEditPreview
             {
                 Left = 18,
-                Top = 357,
+                Top = 371,
                 Width = 602,
-                Height = 82,
+                Height = 68,
                 BackColor = FieldColor,
                 AccessibleName = "Vista previa del texto"
             };
@@ -466,6 +576,9 @@ namespace FirmaAutomatica
             Controls.Add(autoFitCheckBox);
             Controls.Add(alignmentLabel);
             Controls.Add(alignmentSelector);
+            Controls.Add(detectedStyleLabel);
+            Controls.Add(boldCheckBox);
+            Controls.Add(italicCheckBox);
             Controls.Add(coverBackgroundCheckBox);
             Controls.Add(textColorLabel);
             Controls.Add(textColorButton);
@@ -549,6 +662,8 @@ namespace FirmaAutomatica
                 fontSelector.SelectedIndexChanged -= EditorValueChanged;
                 fontSizeInput.ValueChanged -= EditorValueChanged;
                 autoFitCheckBox.CheckedChanged -= EditorValueChanged;
+                boldCheckBox.CheckedChanged -= EditorValueChanged;
+                italicCheckBox.CheckedChanged -= EditorValueChanged;
                 alignmentSelector.SelectedIndexChanged -=
                     EditorValueChanged;
                 coverBackgroundCheckBox.CheckedChanged -=
@@ -652,6 +767,8 @@ namespace FirmaAutomatica
                         fontSelector.SelectedItem as string),
                 FontSizePoints = fontSizeInput.Value,
                 AutoFit = autoFitCheckBox.Checked,
+                Bold = boldCheckBox.Checked,
+                Italic = italicCheckBox.Checked,
                 Alignment = IndexToAlignment(
                     alignmentSelector.SelectedIndex),
                 CoverBackground = coverBackgroundCheckBox.Checked,

@@ -23,6 +23,9 @@ $exe = Join-Path $output "ContentEditEngineQa.exe"
     "/reference:$bouncy" `
     "/reference:$pdfiumViewer" `
     (Join-Path $sourceRoot "PdfTextEditService.cs") `
+    (Join-Path $sourceRoot "PdfTextPageTransform.cs") `
+    (Join-Path $sourceRoot "PdfTextStyleProbe.cs") `
+    (Join-Path $sourceRoot "PdfSystemFontCatalog.cs") `
     (Join-Path $sourceRoot "PdfEditSession.cs") `
     (Join-Path $validationRoot "ContentEditEngineQa.cs")
 if ($LASTEXITCODE -ne 0) {

@@ -186,6 +186,13 @@ namespace FirmaAutomatica
 
         public bool Italic { get; set; }
 
+        /// <summary>
+        /// Fuente detectada en el texto original. Se intenta primero para que el
+        /// reemplazo se parezca al resto de la pagina; si no esta instalada o no
+        /// cubre el texto, se usa la familia generica de FontFamily.
+        /// </summary>
+        public string PreferredFontName { get; set; }
+
         public float FontSizePoints { get; set; }
 
         public float MinimumFontSizePoints { get; set; }
@@ -269,6 +276,16 @@ namespace FirmaAutomatica
             PdfTextEditRegion region,
             string extractedText,
             string extractionError)
+            : this(analysis, region, extractedText, extractionError, null)
+        {
+        }
+
+        internal PdfTextEditPreparation(
+            PdfTextEditAnalysis analysis,
+            PdfTextEditRegion region,
+            string extractedText,
+            string extractionError,
+            PdfTextStyle detectedStyle)
         {
             if (analysis == null)
             {
@@ -283,6 +300,7 @@ namespace FirmaAutomatica
             Region = region;
             ExtractedText = extractedText ?? string.Empty;
             ExtractionError = extractionError ?? string.Empty;
+            DetectedStyle = detectedStyle;
         }
 
         public PdfTextEditAnalysis Analysis { get; private set; }
@@ -292,6 +310,11 @@ namespace FirmaAutomatica
         public string ExtractedText { get; private set; }
 
         public string ExtractionError { get; private set; }
+
+        /// <summary>
+        /// Tipografia real del texto seleccionado, o null si no se pudo leer.
+        /// </summary>
+        public PdfTextStyle DetectedStyle { get; private set; }
 
         public bool TextExtractionSucceeded
         {
@@ -344,278 +367,6 @@ namespace FirmaAutomatica
         public int TotalSteps { get; private set; }
 
         public string Stage { get; private set; }
-    }
-
-    /// <summary>
-    /// Converts between the normalized, rotated page seen by the user and raw
-    /// PDF user space. PdfStamper.RotateContents is deliberately disabled and
-    /// this transform is applied explicitly, because iText's default rotation
-    /// matrices assume a zero-origin MediaBox and can drift on offset CropBoxes.
-    /// </summary>
-    internal sealed class PdfTextPageTransform
-    {
-        private PdfTextPageTransform(
-            float cropLeft,
-            float cropBottom,
-            float cropRight,
-            float cropTop,
-            int rotation)
-        {
-            CropLeft = cropLeft;
-            CropBottom = cropBottom;
-            CropRight = cropRight;
-            CropTop = cropTop;
-            Rotation = NormalizeRotation(rotation);
-            VisualWidth = Rotation == 90 || Rotation == 270
-                ? CropTop - CropBottom
-                : CropRight - CropLeft;
-            VisualHeight = Rotation == 90 || Rotation == 270
-                ? CropRight - CropLeft
-                : CropTop - CropBottom;
-
-            if (VisualWidth <= 0F || VisualHeight <= 0F)
-            {
-                throw new InvalidDataException(
-                    "La pagina no tiene un CropBox valido.");
-            }
-        }
-
-        public float CropLeft { get; private set; }
-
-        public float CropBottom { get; private set; }
-
-        public float CropRight { get; private set; }
-
-        public float CropTop { get; private set; }
-
-        public int Rotation { get; private set; }
-
-        public float VisualWidth { get; private set; }
-
-        public float VisualHeight { get; private set; }
-
-        public static PdfTextPageTransform Create(
-            PdfReader reader,
-            int pageNumber)
-        {
-            if (reader == null)
-            {
-                throw new ArgumentNullException("reader");
-            }
-            if (pageNumber < 1 || pageNumber > reader.NumberOfPages)
-            {
-                throw new ArgumentOutOfRangeException("pageNumber");
-            }
-
-            var crop = reader.GetCropBox(pageNumber) ??
-                reader.GetPageSize(pageNumber);
-            if (crop == null)
-            {
-                throw new InvalidDataException(
-                    "La pagina no tiene un tamano valido.");
-            }
-
-            var left = Math.Min(crop.Left, crop.Right);
-            var right = Math.Max(crop.Left, crop.Right);
-            var bottom = Math.Min(crop.Bottom, crop.Top);
-            var top = Math.Max(crop.Bottom, crop.Top);
-            return new PdfTextPageTransform(
-                left,
-                bottom,
-                right,
-                top,
-                reader.GetPageRotation(pageNumber));
-        }
-
-        public PdfRectangle GetVisualRectangle(PdfTextEditRegion region)
-        {
-            EnsureRegionPage(region);
-            var left = (float)(region.LeftRatio * VisualWidth);
-            var right = (float)(region.RightRatio * VisualWidth);
-            var bottom = (float)((1D - region.BottomRatio) * VisualHeight);
-            var top = (float)((1D - region.TopRatio) * VisualHeight);
-            return new PdfRectangle(left, bottom, right, top);
-        }
-
-        public PdfRectangle GetRawRectangle(PdfTextEditRegion region)
-        {
-            var visual = GetVisualRectangle(region);
-            var points = new[]
-            {
-                VisualToRaw(visual.Left, visual.Bottom),
-                VisualToRaw(visual.Left, visual.Top),
-                VisualToRaw(visual.Right, visual.Bottom),
-                VisualToRaw(visual.Right, visual.Top)
-            };
-            return new PdfRectangle(
-                points.Min(point => point.X),
-                points.Min(point => point.Y),
-                points.Max(point => point.X),
-                points.Max(point => point.Y));
-        }
-
-        public PdfTextEditRegion GetRegionFromRawRectangle(
-            int pageNumber,
-            PdfRectangle rawRectangle)
-        {
-            if (rawRectangle == null)
-            {
-                throw new ArgumentNullException("rawRectangle");
-            }
-
-            var left = Math.Min(rawRectangle.Left, rawRectangle.Right);
-            var right = Math.Max(rawRectangle.Left, rawRectangle.Right);
-            var bottom = Math.Min(rawRectangle.Bottom, rawRectangle.Top);
-            var top = Math.Max(rawRectangle.Bottom, rawRectangle.Top);
-            var points = new[]
-            {
-                RawToVisual(left, bottom),
-                RawToVisual(left, top),
-                RawToVisual(right, bottom),
-                RawToVisual(right, top)
-            };
-            var visualLeft = points.Min(point => point.X);
-            var visualRight = points.Max(point => point.X);
-            var visualBottom = points.Min(point => point.Y);
-            var visualTop = points.Max(point => point.Y);
-            return new PdfTextEditRegion(
-                pageNumber,
-                visualLeft / VisualWidth,
-                1D - visualTop / VisualHeight,
-                visualRight / VisualWidth,
-                1D - visualBottom / VisualHeight);
-        }
-
-        public PointF VisualToRaw(float x, float y)
-        {
-            switch (Rotation)
-            {
-                case 90:
-                    return new PointF(
-                        CropRight - y,
-                        CropBottom + x);
-
-                case 180:
-                    return new PointF(
-                        CropRight - x,
-                        CropTop - y);
-
-                case 270:
-                    return new PointF(
-                        CropLeft + y,
-                        CropTop - x);
-
-                default:
-                    return new PointF(
-                        CropLeft + x,
-                        CropBottom + y);
-            }
-        }
-
-        public PointF RawToVisual(float x, float y)
-        {
-            switch (Rotation)
-            {
-                case 90:
-                    return new PointF(
-                        y - CropBottom,
-                        CropRight - x);
-
-                case 180:
-                    return new PointF(
-                        CropRight - x,
-                        CropTop - y);
-
-                case 270:
-                    return new PointF(
-                        CropTop - y,
-                        x - CropLeft);
-
-                default:
-                    return new PointF(
-                        x - CropLeft,
-                        y - CropBottom);
-            }
-        }
-
-        public void ConcatVisualToRaw(PdfContentByte canvas)
-        {
-            if (canvas == null)
-            {
-                throw new ArgumentNullException("canvas");
-            }
-
-            switch (Rotation)
-            {
-                case 90:
-                    canvas.ConcatCTM(
-                        0F,
-                        1F,
-                        -1F,
-                        0F,
-                        CropRight,
-                        CropBottom);
-                    break;
-
-                case 180:
-                    canvas.ConcatCTM(
-                        -1F,
-                        0F,
-                        0F,
-                        -1F,
-                        CropRight,
-                        CropTop);
-                    break;
-
-                case 270:
-                    canvas.ConcatCTM(
-                        0F,
-                        -1F,
-                        1F,
-                        0F,
-                        CropLeft,
-                        CropTop);
-                    break;
-
-                default:
-                    canvas.ConcatCTM(
-                        1F,
-                        0F,
-                        0F,
-                        1F,
-                        CropLeft,
-                        CropBottom);
-                    break;
-            }
-        }
-
-        private void EnsureRegionPage(PdfTextEditRegion region)
-        {
-            if (region == null)
-            {
-                throw new ArgumentNullException("region");
-            }
-        }
-
-        private static int NormalizeRotation(int rotation)
-        {
-            rotation %= 360;
-            if (rotation < 0)
-            {
-                rotation += 360;
-            }
-
-            if (rotation != 0 && rotation != 90 &&
-                rotation != 180 && rotation != 270)
-            {
-                throw new InvalidDataException(
-                    "La pagina tiene una rotacion no compatible: " +
-                    rotation.ToString(CultureInfo.InvariantCulture) +
-                    " grados.");
-            }
-
-            return rotation;
-        }
     }
 
     internal static class PdfTextEditService
@@ -775,11 +526,16 @@ namespace FirmaAutomatica
                         extractionError = ex.GetBaseException().Message;
                     }
 
+                    // La tipografia se lee aparte del texto: si la deteccion
+                    // falla se sigue igualmente, solo que sin preseleccionar.
+                    var detectedStyle = PdfTextStyleProbe.Detect(reader, region);
+
                     return new PdfTextEditPreparation(
                         analysis,
                         region,
                         extractedText,
-                        extractionError);
+                        extractionError,
+                        detectedStyle);
                 }
                 catch (InvalidDataException)
                 {
@@ -1092,6 +848,24 @@ namespace FirmaAutomatica
                 stamper.RotateContents = false;
                 stamper.MoreInfo = CloneMetadata(expectations.Metadata);
 
+                // Sin esto, PdfStamper regenera el paquete XMP a partir del
+                // diccionario Info y por el camino pierde propiedades que no
+                // sabe reconstruir, como xmpMM:DocumentID e InstanceID, que
+                // llevan todos los PDF de Word. La validacion posterior lo
+                // detectaba y abortaba la edicion, asi que hasta ahora no se
+                // podia editar el texto de un PDF hecho con Word.
+                //
+                // Es el mismo criterio que ya aplican PdfAcroFormService y
+                // PdfPageOrganizerService: se conserva el paquete original y se
+                // deja que el stamper refresque Producer, ModifyDate y
+                // MetadataDate, que son los tres campos tecnicos que la
+                // validacion tolera.
+                var sourceXmpMetadata = reader.Metadata;
+                if (sourceXmpMetadata != null && sourceXmpMetadata.Length > 0)
+                {
+                    stamper.XmpMetadata = sourceXmpMetadata;
+                }
+
                 cancellationToken.ThrowIfCancellationRequested();
                 Report(reportProgress, 1, "Ajustando texto");
                 var canvas = stamper.GetOverContent(
@@ -1104,7 +878,8 @@ namespace FirmaAutomatica
                         replacement.FontFamily,
                         replacement.Bold,
                         replacement.Italic,
-                        text);
+                        text,
+                        replacement.PreferredFontName);
                     fontDisplayName = resolvedFont.DisplayName;
                     actualFontSize = ResolveFontSize(
                         canvas,
@@ -2196,7 +1971,7 @@ namespace FirmaAutomatica
                 // Compare the RDF graph rather than packet bytes. iText may
                 // change prefixes, padding and the three technical fields
                 // deliberately excluded below during an incremental save.
-                var canonical = CanonicalizeXmpNode(rdfNodes[0]);
+                var canonical = CanonicalizeXmpGraph(rdfNodes[0]);
                 var semanticHash = ComputeBytesHash(
                     new UTF8Encoding(false).GetBytes(canonical));
                 return new XmpExpectation(
@@ -2300,6 +2075,153 @@ namespace FirmaAutomatica
             return builder.ToString();
         }
 
+        /// <summary>
+        /// Canoniza el grafo RDF entero agrupando las propiedades por sujeto.
+        ///
+        /// XMP permite repartir las propiedades de un mismo sujeto entre varios
+        /// rdf:Description o juntarlas en uno solo, y son equivalentes. Word
+        /// escribe uno por espacio de nombres e iText los fusiona al reescribir
+        /// el paquete, asi que comparar bloque a bloque hacia fallar la
+        /// validacion por un detalle de forma, sin que hubiera cambiado ningun
+        /// dato. El efecto practico era que no se podia editar el texto de
+        /// ningun PDF hecho con Word.
+        /// </summary>
+        private static string CanonicalizeXmpGraph(XmlNode rdfNode)
+        {
+            var subjectOrder = new List<string>();
+            var propertiesBySubject = new Dictionary<string, List<string>>(
+                StringComparer.Ordinal);
+            var structuralBySubject = new Dictionary<string, List<string>>(
+                StringComparer.Ordinal);
+            var otherNodes = new List<string>();
+
+            foreach (XmlNode child in rdfNode.ChildNodes)
+            {
+                if (child.NodeType != XmlNodeType.Element)
+                {
+                    continue;
+                }
+
+                if (!IsRdfDescriptionElement(child))
+                {
+                    var token = CanonicalizeXmpNode(child);
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        otherNodes.Add(token);
+                    }
+
+                    continue;
+                }
+
+                var subject = GetRdfSubject(child);
+                if (!propertiesBySubject.ContainsKey(subject))
+                {
+                    subjectOrder.Add(subject);
+                    propertiesBySubject[subject] = new List<string>();
+                    structuralBySubject[subject] = new List<string>();
+                }
+
+                CollectRdfDescription(
+                    child,
+                    structuralBySubject[subject],
+                    propertiesBySubject[subject]);
+            }
+
+            var builder = new StringBuilder("G");
+            subjectOrder.Sort(StringComparer.Ordinal);
+            foreach (var subject in subjectOrder)
+            {
+                var subjectBuilder = new StringBuilder("D");
+                AppendXmpScalar(subjectBuilder, subject);
+
+                var structural = structuralBySubject[subject];
+                structural.Sort(StringComparer.Ordinal);
+                foreach (var attribute in Distinct(structural))
+                {
+                    AppendXmpScalar(subjectBuilder, attribute);
+                }
+
+                var properties = propertiesBySubject[subject];
+                properties.Sort(StringComparer.Ordinal);
+                foreach (var property in properties)
+                {
+                    AppendXmpScalar(subjectBuilder, property);
+                }
+
+                AppendXmpScalar(builder, subjectBuilder.ToString());
+            }
+
+            otherNodes.Sort(StringComparer.Ordinal);
+            foreach (var token in otherNodes)
+            {
+                AppendXmpScalar(builder, token);
+            }
+
+            return builder.ToString();
+        }
+
+        private static IEnumerable<string> Distinct(IList<string> values)
+        {
+            string previous = null;
+            foreach (var value in values)
+            {
+                if (previous == null ||
+                    !string.Equals(previous, value, StringComparison.Ordinal))
+                {
+                    yield return value;
+                }
+
+                previous = value;
+            }
+        }
+
+        private static bool IsRdfDescriptionElement(XmlNode node)
+        {
+            return node != null &&
+                node.NodeType == XmlNodeType.Element &&
+                string.Equals(
+                    node.NamespaceURI,
+                    "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+                    StringComparison.Ordinal) &&
+                string.Equals(
+                    node.LocalName,
+                    "Description",
+                    StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Sujeto del que habla un rdf:Description. Casi siempre es la cadena
+        /// vacia, que en XMP significa "este documento".
+        /// </summary>
+        private static string GetRdfSubject(XmlNode node)
+        {
+            if (node.Attributes == null)
+            {
+                return string.Empty;
+            }
+
+            foreach (XmlAttribute attribute in node.Attributes)
+            {
+                if (string.Equals(
+                        attribute.NamespaceURI,
+                        "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+                        StringComparison.Ordinal) &&
+                    (string.Equals(
+                        attribute.LocalName,
+                        "about",
+                        StringComparison.Ordinal) ||
+                     string.Equals(
+                        attribute.LocalName,
+                        "ID",
+                        StringComparison.Ordinal)))
+                {
+                    return attribute.Value ?? string.Empty;
+                }
+            }
+
+            return string.Empty;
+        }
+
         private static string CanonicalizeRdfDescription(XmlNode node)
         {
             var builder = new StringBuilder("D");
@@ -2308,6 +2230,34 @@ namespace FirmaAutomatica
 
             var structuralAttributes = new List<string>();
             var properties = new List<string>();
+            CollectRdfDescription(node, structuralAttributes, properties);
+
+            structuralAttributes.Sort(StringComparer.Ordinal);
+            properties.Sort(StringComparer.Ordinal);
+            foreach (var attribute in structuralAttributes)
+            {
+                AppendXmpScalar(builder, attribute);
+            }
+
+            foreach (var property in properties)
+            {
+                AppendXmpScalar(builder, property);
+            }
+
+            return builder.ToString();
+        }
+
+        /// <summary>
+        /// Reparte el contenido de un rdf:Description entre atributos
+        /// estructurales y propiedades, sin distinguir si vienen escritas como
+        /// atributo o como elemento hijo: XMP admite las dos formas para lo
+        /// mismo.
+        /// </summary>
+        private static void CollectRdfDescription(
+            XmlNode node,
+            List<string> structuralAttributes,
+            List<string> properties)
+        {
             if (node.Attributes != null)
             {
                 foreach (XmlAttribute attribute in node.Attributes)
@@ -2349,20 +2299,6 @@ namespace FirmaAutomatica
                         child.InnerText)
                     : "P" + CanonicalizeXmpNode(child));
             }
-
-            structuralAttributes.Sort(StringComparer.Ordinal);
-            properties.Sort(StringComparer.Ordinal);
-            foreach (var attribute in structuralAttributes)
-            {
-                AppendXmpScalar(builder, attribute);
-            }
-
-            foreach (var property in properties)
-            {
-                AppendXmpScalar(builder, property);
-            }
-
-            return builder.ToString();
         }
 
         private static string CanonicalizeXmpAttribute(
@@ -2805,6 +2741,22 @@ namespace FirmaAutomatica
             bool italic,
             string text)
         {
+            return Create(family, bold, italic, text, null);
+        }
+
+        /// <summary>
+        /// Igual que la anterior, pero probando primero la fuente detectada en
+        /// el PDF original. Si esa fuente no esta instalada o no cubre el texto,
+        /// se sigue con los candidatos genericos de siempre: reconocer la
+        /// tipografia es una mejora, nunca un motivo para no poder escribir.
+        /// </summary>
+        public static PdfTextResolvedFont Create(
+            PdfTextEditFontFamily family,
+            bool bold,
+            bool italic,
+            string text,
+            string preferredFontName)
+        {
             var unsupportedSupplementary =
                 FindFirstSupplementaryCodePoint(text);
             if (unsupportedSupplementary >= 0)
@@ -2821,7 +2773,8 @@ namespace FirmaAutomatica
             }
 
             Exception lastError = null;
-            foreach (var candidate in GetCandidates(family, bold, italic))
+            foreach (var candidate in
+                GetCandidates(family, bold, italic, preferredFontName))
             {
                 var path = ResolvePath(candidate.FileName);
                 if (string.IsNullOrWhiteSpace(path))
@@ -2872,8 +2825,26 @@ namespace FirmaAutomatica
         private static IEnumerable<FontCandidate> GetCandidates(
             PdfTextEditFontFamily family,
             bool bold,
-            bool italic)
+            bool italic,
+            string preferredFontName)
         {
+            // La fuente que tenia el texto original va primero, para que el
+            // reemplazo se parezca al resto de la pagina. Si no esta instalada o
+            // no cubre el texto, el bucle de Create sigue con las siguientes.
+            if (!string.IsNullOrEmpty(preferredFontName))
+            {
+                string displayName;
+                var preferido = PdfSystemFontCatalog.ResolveFileName(
+                    preferredFontName,
+                    bold,
+                    italic,
+                    out displayName);
+                if (!string.IsNullOrEmpty(preferido))
+                {
+                    yield return new FontCandidate(preferido, displayName);
+                }
+            }
+
             if (family == PdfTextEditFontFamily.Serif)
             {
                 if (bold && italic)
