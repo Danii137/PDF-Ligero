@@ -356,6 +356,39 @@ Pendiente, con el motivo:
   todo la sección 5 de la AGPL. El ejecutable ya lleva el aviso en sus
   metadatos, pero no se ve desde la interfaz.
 
+## Fase 10 — anotar y reconocer la tipografía
+
+Cerrada. Dos entregas:
+
+**Reconocer la tipografía al editar texto.** Antes había que elegir la fuente a
+mano entre tres genéricas, con 11 puntos fijos y en negro. Ahora se lee la que
+tiene realmente el texto seleccionado —fuente, tamaño, color, negrita y
+cursiva— y llega preseleccionada. Medido sobre PDFs de Word, el tamaño se
+detecta con 0,04 pt de error. La fuente se busca instalada en Windows, porque
+la incrustada suele ser un subconjunto sin los glifos nuevos.
+
+Por el camino apareció que **ningún PDF hecho con Word se podía editar**: al
+guardar, la validación posterior rechazaba el resultado con «Los metadatos XMP
+descriptivos cambiaron». Dos causas, las dos arregladas: el editor de texto no
+conservaba el paquete XMP original (cosa que los otros servicios sí hacen), y la
+canonicalización comparaba bloque a bloque los `rdf:Description` cuando XMP
+permite repartir las propiedades entre varios o juntarlas en uno.
+
+**Anotar.** Rotulador a mano alzada, subrayador y notas, con color y grosor,
+guardados como anotaciones PDF estándar en una revisión incremental.
+
+Hallazgo que condiciona el diseño: **PDFium no dibuja anotaciones**, ni siquiera
+pasándole `PdfRenderFlags.Annotations`. Se comprobó con apariencia `/AP` escrita,
+bandera de impresión, las dos convenciones de caja y tanto en revisión
+incremental como reescribiendo el documento: cero píxeles de diferencia en los
+cuatro casos. Como esa versión está congelada, las marcas las dibuja la propia
+aplicación leyéndolas del documento. Queda anotado en
+`firma automática/build/validation-annotations/README.md` por si algún día se
+actualiza el motor.
+
+Fuera de alcance, como estaba previsto: edición directa del flujo de contenido,
+redacción segura y formas geométricas.
+
 ## Siguiente entrega
 
 De la fase 9 solo queda comprar el certificado de firma de código y añadir el

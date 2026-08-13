@@ -74,6 +74,8 @@ namespace FirmaAutomatica
         private readonly Button mergeToolButton;
         private readonly Button compareToolButton;
         private readonly Button measureToolButton;
+        private readonly Button annotateToolButton;
+        private ToolStripMenuItem annotateMenuItem;
         private readonly Button moreToolButton;
         private readonly ContextMenuStrip contentEditMenu;
         private readonly ToolStripMenuItem editTextMenuItem;
@@ -466,6 +468,10 @@ namespace FirmaAutomatica
                 MeasureToolButton_Click);
             measureToolButton.Font =
                 CreateArchitecturalFont(11.5f, true);
+            annotateToolButton = CreateToolButton(
+                "\uE891",
+                "Anotar: rotulador, subrayador y notas (Ctrl+Mayús+A)",
+                AnnotateToolButton_Click);
             moreToolButton = CreateToolButton(
                 "\uE712",
                 "Más herramientas",
@@ -479,6 +485,7 @@ namespace FirmaAutomatica
             toolRail.Controls.Add(mergeToolButton);
             toolRail.Controls.Add(compareToolButton);
             toolRail.Controls.Add(measureToolButton);
+            toolRail.Controls.Add(annotateToolButton);
             toolRail.Controls.Add(moreToolButton);
 
             workspaceHost = new Panel
@@ -682,6 +689,10 @@ namespace FirmaAutomatica
                 moreMenu,
                 "Medir plano…                  Ctrl+Mayús+M",
                 MeasureToolButton_Click);
+            annotateMenuItem = AddMenuItem(
+                moreMenu,
+                "Anotar…                          Ctrl+Mayús+A",
+                AnnotateToolButton_Click);
             moreMenu.Items.Add(new ToolStripSeparator());
 
             var contentEditSubmenu = new ToolStripMenuItem(
@@ -1191,6 +1202,254 @@ namespace FirmaAutomatica
             BeginPlanComparison();
         }
 
+        private void AnnotateToolButton_Click(object sender, EventArgs e)
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace != null &&
+                workspace.Annotation != null &&
+                workspace.Annotation.IsActive)
+            {
+                if (!ConfirmDiscardPendingMarks(workspace))
+                {
+                    return;
+                }
+
+                workspace.Annotation.Deactivate();
+                RefreshToolAvailability();
+                workspace.Viewer.Focus();
+                return;
+            }
+
+            if (workspace == null ||
+                IsPageStructureOperationInProgress)
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            CancelRectangleZoom(workspace);
+            if (searchPanel.Visible)
+            {
+                CloseSearchPanel();
+            }
+            if (workspace.Measurement != null &&
+                workspace.Measurement.IsActive)
+            {
+                workspace.Measurement.Deactivate();
+            }
+
+            try
+            {
+                if (workspace.Annotation == null)
+                {
+                    var destino = workspace;
+                    workspace.Annotation = new PdfAnnotationController(
+                        workspace.Viewer.Renderer,
+                        delegate { return CanActivateAnnotation(destino); },
+                        delegate { return Environment.UserName; },
+                        delegate(string mensaje)
+                        {
+                            documentLabel.Text = mensaje;
+                        });
+                    workspace.Annotation.SaveRequested +=
+                        AnnotationController_SaveRequested;
+                    workspace.Annotation.PendingChanged +=
+                        AnnotationController_PendingChanged;
+                    // Las marcas que ya tiene el documento se dibujan tambien:
+                    // PDFium no las pinta, asi que las pinta la aplicacion.
+                    workspace.Annotation.LoadExisting(workspace.ContentPath);
+                }
+
+                workspace.Annotation.Activate();
+                RefreshToolAvailability();
+                workspace.Viewer.Renderer.Focus();
+                documentLabel.Text =
+                    "Anotando: elige rotulador, subrayador o nota en la barra.";
+            }
+            catch (Exception ex)
+            {
+                DisposeWorkspaceAnnotation(workspace);
+                RefreshToolAvailability();
+                AppLog.Write("No se pudo iniciar la anotación: " + ex);
+                ShowPdfProblem(
+                    "Anotar",
+                    "No se pudo iniciar la anotación.",
+                    "El PDF original no se ha modificado.",
+                    ex,
+                    workspace == null ? null : workspace.ContentPath);
+            }
+        }
+
+        private bool CanActivateAnnotation(PdfWorkspace workspace)
+        {
+            return workspace != null &&
+                workspace == activeWorkspace &&
+                workspace.IsLoaded &&
+                !workspace.IsDisposed &&
+                workspace.Document != null &&
+                comparisonSurface == null &&
+                !searchPanel.Visible &&
+                !pageInsertInProgress &&
+                !pageOrganizationInProgress &&
+                !ocrInProgress &&
+                !bookmarkEditInProgress &&
+                !contentEditInProgress &&
+                !IsTextEditSelectionActive &&
+                !activatingWorkspace &&
+                !closingAll;
+        }
+
+        private void AnnotationController_PendingChanged(
+            object sender,
+            EventArgs e)
+        {
+            RefreshToolAvailability();
+        }
+
+        /// <summary>
+        /// Pregunta antes de tirar marcas sin guardar. Un trazo perdido es
+        /// trabajo perdido.
+        /// </summary>
+        private bool ConfirmDiscardPendingMarks(PdfWorkspace workspace)
+        {
+            if (workspace == null ||
+                workspace.Annotation == null ||
+                !workspace.Annotation.HasPending)
+            {
+                return true;
+            }
+
+            var answer = MessageBox.Show(
+                this,
+                "Tienes " + workspace.Annotation.Pending.Describe() +
+                " sin guardar.\r\n\r\n" +
+                "Si sales ahora se perderán.",
+                "Anotar",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes)
+            {
+                return false;
+            }
+
+            workspace.Annotation.ClearPending();
+            return true;
+        }
+
+        private void AnnotationController_SaveRequested(
+            object sender,
+            EventArgs e)
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null ||
+                workspace.Annotation == null ||
+                !workspace.Annotation.HasPending)
+            {
+                return;
+            }
+
+            var editSession = workspace.EditSession;
+            var sourcePath = workspace.ContentPath;
+            var descripcion = workspace.Annotation.Pending.Describe();
+            string outputPath = null;
+
+            contentEditInProgress = true;
+            RefreshToolAvailability();
+            try
+            {
+                long estimado;
+                try
+                {
+                    estimado = checked(
+                        new FileInfo(sourcePath).Length + (2L * 1024L * 1024L));
+                }
+                catch (OverflowException)
+                {
+                    estimado = long.MaxValue;
+                }
+
+                outputPath = editSession.ReserveRevisionPath(estimado);
+                PdfAnnotationSaveResult resultado = null;
+                using (var progress = new PdfBackgroundOperationForm(
+                    "Anotar",
+                    "Guardando las marcas…",
+                    delegate
+                    {
+                        resultado = PdfAnnotationService.Save(
+                            sourcePath,
+                            outputPath,
+                            workspace.Annotation.Pending,
+                            editSession.CurrentViewIdentity);
+                    }))
+                {
+                    progress.Run(this);
+                }
+
+                ApplyContentRevision(
+                    workspace,
+                    editSession,
+                    sourcePath,
+                    outputPath,
+                    GetWorkspacePageIndexForComparison(workspace),
+                    "Anotar",
+                    descripcion + " guardado. El original no se ha modificado.");
+                outputPath = null;
+
+                workspace.Annotation.ClearPending();
+                workspace.Annotation.LoadExisting(workspace.ContentPath);
+
+                if (resultado != null &&
+                    resultado.DigitalSignaturesInvalidated)
+                {
+                    MessageBox.Show(
+                        this,
+                        PdfAnnotationService.DigitalSignatureWarning,
+                        "Anotar",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("No se pudieron guardar las marcas: " + ex);
+                ShowPdfProblem(
+                    "Anotar",
+                    "No se pudieron guardar las marcas.",
+                    "El PDF original no se ha modificado.",
+                    ex,
+                    sourcePath);
+            }
+            finally
+            {
+                if (!string.IsNullOrWhiteSpace(outputPath) &&
+                    !string.Equals(
+                        editSession.CurrentPath,
+                        outputPath,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    editSession.CancelReservedRevision(outputPath);
+                }
+
+                contentEditInProgress = false;
+                RefreshToolAvailability();
+            }
+        }
+
+        private void DisposeWorkspaceAnnotation(PdfWorkspace workspace)
+        {
+            if (workspace == null || workspace.Annotation == null)
+            {
+                return;
+            }
+
+            var controller = workspace.Annotation;
+            workspace.Annotation = null;
+            controller.SaveRequested -= AnnotationController_SaveRequested;
+            controller.PendingChanged -= AnnotationController_PendingChanged;
+            controller.Dispose();
+        }
+
         private void MeasureToolButton_Click(object sender, EventArgs e)
         {
             var workspace = GetLoadedActiveWorkspace();
@@ -1329,6 +1588,8 @@ namespace FirmaAutomatica
         private void DisposeWorkspaceMeasurement(
             PdfWorkspace workspace)
         {
+            DisposeWorkspaceAnnotation(workspace);
+
             if (workspace == null ||
                 workspace.Measurement == null)
             {
@@ -7923,6 +8184,17 @@ namespace FirmaAutomatica
             }
 
             if (e.Control &&
+                e.Shift &&
+                !e.Alt &&
+                e.KeyCode == Keys.A)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                AnnotateToolButton_Click(sender, EventArgs.Empty);
+                return;
+            }
+
+            if (e.Control &&
                 !e.Alt &&
                 !textControlFocused &&
                 e.KeyCode == Keys.Z &&
@@ -8400,6 +8672,50 @@ namespace FirmaAutomatica
                 measurementActive
                     ? "Cerrar medición (Esc)"
                     : "Medir plano (Ctrl+Mayús+M)");
+
+            var annotationActive = activeWorkspace != null &&
+                activeWorkspace.Annotation != null &&
+                activeWorkspace.Annotation.IsActive;
+            var annotationPending = annotationActive &&
+                activeWorkspace.Annotation.HasPending;
+            annotateToolButton.Enabled =
+                annotationActive ||
+                (hasLoadedDocument &&
+                 !protectedDocument &&
+                 !comparisonActive &&
+                 !measurementActive &&
+                 !pageInsertInProgress &&
+                 !pageOrganizationInProgress &&
+                 !ocrInProgress &&
+                 !bookmarkEditInProgress &&
+                 !contentEditInProgress &&
+                 !textEditSelectionActive &&
+                 !activatingWorkspace &&
+                 !closingAll);
+            annotateToolButton.Text =
+                annotationActive ? "\u00D7" : "\uE891";
+            annotateToolButton.AccessibleName = annotationActive
+                ? "Cerrar la herramienta de anotación"
+                : "Anotar: rotulador, subrayador y notas";
+            annotateToolButton.BackColor = annotationActive
+                ? AccentTintColor
+                : HeaderBackgroundColor;
+            annotateToolButton.ForeColor = annotationActive
+                ? AccentTextColor
+                : (annotateToolButton.Enabled
+                    ? TitleColor
+                    : MutedColor);
+            toolTip.SetToolTip(
+                annotateToolButton,
+                annotationActive
+                    ? (annotationPending
+                        ? "Cerrar anotación (hay marcas sin guardar)"
+                        : "Cerrar anotación")
+                    : "Anotar: rotulador, subrayador y notas (Ctrl+Mayús+A)");
+            if (annotateMenuItem != null)
+            {
+                annotateMenuItem.Enabled = annotateToolButton.Enabled;
+            }
 
             undoMenuItem.Enabled = hasLoadedDocument &&
                 !IsPageStructureOperationInProgress &&
@@ -9239,6 +9555,8 @@ namespace FirmaAutomatica
             public PdfRectangleZoomController RectangleZoom;
             public PdfTextEditSelectionController TextEditSelection;
             public PdfMeasurementController Measurement;
+
+            public PdfAnnotationController Annotation;
             public Panel NavigationPanel;
             public Panel NavigationHeader;
             public Button PagesButton;

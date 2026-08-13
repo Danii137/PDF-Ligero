@@ -118,9 +118,20 @@ Para reemplazar texto visualmente:
 
 1. elige `Cubrir y reemplazar texto…`;
 2. arrastra una zona sobre una sola página y pulsa la `T` de su centro;
-3. revisa el texto detectado, la fuente, tamaño o autoajuste, alineación y
-   colores;
+3. revisa el texto detectado y la tipografía que se ha reconocido;
 4. pulsa `Aplicar` para crear una revisión en la misma pestaña.
+
+**La tipografía del original se reconoce sola.** Al seleccionar una zona se lee
+la fuente que tiene realmente ese texto, con su tamaño, su color y si va en
+negrita o cursiva, y el diálogo llega con todo eso puesto: no hay que acertarlo
+a ojo. Se indica encima del desplegable, por ejemplo `Detectado: Calibri 11 pt`.
+Se puede cambiar a mano si interesa.
+
+La fuente incrustada en el PDF no sirve para escribir, porque los documentos de
+Word la incrustan en subconjuntos que solo traen las letras ya usadas y una
+letra nueva saldría en blanco. Por eso se busca esa misma fuente instalada en
+Windows; si no está o no cubre algún carácter, se recurre a una genérica y el
+texto se escribe igualmente.
 
 La operación entiende páginas giradas y cajas de página desplazadas, incrusta
 la fuente necesaria para texto Unicode y entra en el historial normal de
@@ -140,6 +151,37 @@ una explicación. Un campo de
 contraseña se oculta mientras se escribe, pero su valor no queda cifrado por ese
 hecho dentro del PDF. Los scripts y cálculos se conservan, pero PDF Ligero no
 los ejecuta.
+
+## Anotar: rotulador, subrayador y notas
+
+Pulsa el rotulador de la barra derecha o `Ctrl+Mayús+A`. Aparece una barra
+flotante sobre la página con las tres herramientas, seis colores y tres
+grosores.
+
+- **Rotulador**: arrastra para dibujar a mano alzada sobre la página, como si
+  rodearas una zona de un plano con un boli.
+- **Subrayador**: arrastra sobre un texto para marcarlo en color translúcido,
+  que deja leer lo de debajo.
+- **Nota**: haz clic donde quieras anclarla y escribe el comentario.
+
+Las marcas se acumulan mientras trabajas y se escriben todas de una vez al
+pulsar `Guardar marcas`; el botón indica cuántas hay. `Deshacer` quita la
+última. Si intentas cerrar la herramienta con marcas sin guardar, se avisa antes
+de perderlas. Al guardar se crea una revisión normal, así que `Ctrl+Z` también
+funciona.
+
+Se guardan como **anotaciones PDF estándar**, no dibujadas sobre el contenido:
+se ven en Acrobat, en el móvil y en cualquier otro visor, el contenido original
+no se toca y quien reciba el documento puede borrarlas. Los PDF cifrados y los
+que llevan formularios XFA se bloquean, y si el documento está firmado
+digitalmente se avisa de que la firma dejará de ser válida.
+
+Dentro de PDF Ligero las marcas las dibuja la propia aplicación, no el motor de
+renderizado. El motivo está medido y anotado en
+`build/validation-annotations/README.md`: la versión de PDFium que usa el
+proyecto no dibuja anotaciones, y está congelada porque es la última compatible
+con el envoltorio. El efecto práctico es bueno: se ven exactamente igual
+mientras se dibujan y después de guardar.
 
 ## Zoom por rectángulo
 
