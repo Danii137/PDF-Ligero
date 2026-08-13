@@ -1673,6 +1673,7 @@ namespace FirmaAutomatica
             string detectedText = string.Empty;
             string extractError = string.Empty;
             PdfTextStyle detectedStyle = null;
+            PdfDirectTextCapability directCapability = null;
             string outputPath = null;
 
             contentEditInProgress = true;
@@ -1695,6 +1696,7 @@ namespace FirmaAutomatica
                         detectedText = preparation.ExtractedText;
                         extractError = preparation.ExtractionError;
                         detectedStyle = preparation.DetectedStyle;
+                        directCapability = preparation.DirectCapability;
                     }))
                 {
                     progress.Run(this);
@@ -1764,6 +1766,17 @@ namespace FirmaAutomatica
                     AutoFit = true,
                     FontSizePoints = 11M
                 };
+                // Sustituir de verdad solo se ofrece si la zona lo admite;
+                // si no, se explica el motivo en el consejo de la casilla.
+                if (directCapability != null)
+                {
+                    initialState.CanReplaceInPlace =
+                        directCapability.CanReplace;
+                    initialState.ReplaceInPlaceReason =
+                        directCapability.Reason;
+                    initialState.ReplaceInPlace = directCapability.CanReplace;
+                }
+
                 if (detectedStyle != null &&
                     !string.IsNullOrEmpty(detectedStyle.FontName))
                 {
@@ -1823,6 +1836,7 @@ namespace FirmaAutomatica
                     PreferredFontName = usaDetectada
                         ? selectedState.BaseFontName
                         : null,
+                    ReplaceInPlace = selectedState.ReplaceInPlace,
                     Bold = selectedState.Bold,
                     Italic = selectedState.Italic,
                     FontSizePoints = (float)selectedState.FontSizePoints,

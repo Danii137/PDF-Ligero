@@ -48,6 +48,18 @@ namespace FirmaAutomatica
         public bool Italic { get; set; }
 
         /// <summary>
+        /// Sustituir el texto original en lugar de taparlo. Solo se ofrece
+        /// cuando la zona lo admite.
+        /// </summary>
+        public bool ReplaceInPlace { get; set; }
+
+        /// <summary>La zona admite sustituir el texto de verdad.</summary>
+        public bool CanReplaceInPlace { get; set; }
+
+        /// <summary>Por que no se puede sustituir, cuando no se puede.</summary>
+        public string ReplaceInPlaceReason { get; set; }
+
+        /// <summary>
         /// La persona dejo puesta la fuente detectada, asi que hay que
         /// intentar escribir con ella.
         /// </summary>
@@ -85,6 +97,9 @@ namespace FirmaAutomatica
                 BaseFontName = NormalizeSelectedFont(BaseFontName),
                 Bold = Bold,
                 Italic = Italic,
+                CanReplaceInPlace = CanReplaceInPlace,
+                ReplaceInPlace = CanReplaceInPlace && ReplaceInPlace,
+                ReplaceInPlaceReason = ReplaceInPlaceReason ?? string.Empty,
                 FontSizePoints = ClampFontSize(FontSizePoints),
                 AutoFit = AutoFit,
                 Alignment = NormalizeAlignment(Alignment),
@@ -193,6 +208,9 @@ namespace FirmaAutomatica
         private readonly Label detectedStyleLabel;
         private readonly CheckBox boldCheckBox;
         private readonly CheckBox italicCheckBox;
+        private readonly CheckBox replaceInPlaceCheckBox;
+        private readonly Label titleLabel;
+        private readonly Label safetyLabel;
         private readonly NumericUpDown fontSizeInput;
         private readonly CheckBox autoFitCheckBox;
         private readonly ComboBox alignmentSelector;
@@ -250,7 +268,7 @@ namespace FirmaAutomatica
                 TextAlign = ContentAlignment.MiddleLeft,
                 Font = CreateArchitecturalFont(7.5f, FontStyle.Bold)
             };
-            var titleLabel = new Label
+            titleLabel = new Label
             {
                 Left = 18,
                 Top = 28,
@@ -453,6 +471,30 @@ namespace FirmaAutomatica
             };
             italicCheckBox.CheckedChanged += EditorValueChanged;
 
+            // Sustituir de verdad frente a tapar. Solo se habilita cuando la
+            // zona lo admite; si no, se explica por que en el consejo.
+            replaceInPlaceCheckBox = new CheckBox
+            {
+                Left = 208,
+                Top = 288,
+                Width = 300,
+                Height = 22,
+                Text = "Sustituir el texto original",
+                Checked = state.CanReplaceInPlace && state.ReplaceInPlace,
+                Enabled = state.CanReplaceInPlace,
+                ForeColor = state.CanReplaceInPlace ? BodyColor : MutedColor,
+                FlatStyle = FlatStyle.Flat,
+                AccessibleName = "Sustituir el texto original en vez de taparlo"
+            };
+            replaceInPlaceCheckBox.CheckedChanged += ReplaceModeChanged;
+            toolTip.SetToolTip(
+                replaceInPlaceCheckBox,
+                state.CanReplaceInPlace
+                    ? "Elimina el texto anterior del PDF en vez de cubrirlo."
+                    : (string.IsNullOrEmpty(state.ReplaceInPlaceReason)
+                        ? "Esta zona no admite sustituir el texto."
+                        : state.ReplaceInPlaceReason));
+
             coverBackgroundCheckBox = new CheckBox
             {
                 Left = 18,
@@ -510,7 +552,7 @@ namespace FirmaAutomatica
                 AccessibleName = "Vista previa del texto"
             };
 
-            var safetyLabel = new Label
+            safetyLabel = new Label
             {
                 Left = 18,
                 Top = 448,
@@ -579,6 +621,7 @@ namespace FirmaAutomatica
             Controls.Add(detectedStyleLabel);
             Controls.Add(boldCheckBox);
             Controls.Add(italicCheckBox);
+            Controls.Add(replaceInPlaceCheckBox);
             Controls.Add(coverBackgroundCheckBox);
             Controls.Add(textColorLabel);
             Controls.Add(textColorButton);
@@ -591,6 +634,7 @@ namespace FirmaAutomatica
             Controls.Add(cancelButton);
             Controls.Add(applyButton);
 
+            ReplaceModeChanged(this, EventArgs.Empty);
             AcceptButton = applyButton;
             CancelButton = cancelButton;
 
@@ -664,6 +708,7 @@ namespace FirmaAutomatica
                 autoFitCheckBox.CheckedChanged -= EditorValueChanged;
                 boldCheckBox.CheckedChanged -= EditorValueChanged;
                 italicCheckBox.CheckedChanged -= EditorValueChanged;
+                replaceInPlaceCheckBox.CheckedChanged -= ReplaceModeChanged;
                 alignmentSelector.SelectedIndexChanged -=
                     EditorValueChanged;
                 coverBackgroundCheckBox.CheckedChanged -=
@@ -675,6 +720,42 @@ namespace FirmaAutomatica
             }
 
             base.Dispose(disposing);
+        }
+
+        /// <summary>
+        /// Sustituir y cubrir se excluyen: si el texto anterior se elimina, no
+        /// hay nada que tapar.
+        /// </summary>
+        private void ReplaceModeChanged(object sender, EventArgs e)
+        {
+            var sustituye = replaceInPlaceCheckBox.Checked;
+            // Se desmarca ademas de deshabilitarse: dejarla marcada haria creer
+            // que tambien se va a tapar la zona, y no es lo que ocurre.
+            if (sustituye && coverBackgroundCheckBox.Checked)
+            {
+                coverBackgroundCheckBox.Checked = false;
+            }
+
+            coverBackgroundCheckBox.Enabled = !sustituye;
+            coverColorButton.Enabled = !sustituye;
+            coverBackgroundCheckBox.ForeColor = sustituye
+                ? MutedColor
+                : BodyColor;
+
+            // El titulo y el aviso tienen que decir la verdad de lo que va a
+            // pasar. Al sustituir, el texto anterior se elimina del documento,
+            // asi que seguir advirtiendo de que puede seguir dentro seria
+            // falso; pero tampoco es una redaccion verificada, y eso se dice.
+            titleLabel.Text = sustituye
+                ? "Sustituir el texto de la zona"
+                : "Cubrir y escribir en la zona";
+            safetyLabel.Text = sustituye
+                ? "SUSTITUCIÓN REAL  ·  El texto anterior se elimina del " +
+                  "documento. No sustituye a un saneado completo."
+                : "EDICIÓN VISUAL  ·  El texto anterior puede seguir dentro " +
+                  "del PDF. Esta herramienta no es una redacción segura.";
+
+            EditorValueChanged(sender, e);
         }
 
         private void EditorValueChanged(object sender, EventArgs e)
@@ -769,6 +850,8 @@ namespace FirmaAutomatica
                 AutoFit = autoFitCheckBox.Checked,
                 Bold = boldCheckBox.Checked,
                 Italic = italicCheckBox.Checked,
+                CanReplaceInPlace = replaceInPlaceCheckBox.Enabled,
+                ReplaceInPlace = replaceInPlaceCheckBox.Checked,
                 Alignment = IndexToAlignment(
                     alignmentSelector.SelectedIndex),
                 CoverBackground = coverBackgroundCheckBox.Checked,

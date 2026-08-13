@@ -386,8 +386,20 @@ aplicación leyéndolas del documento. Queda anotado en
 `firma automática/build/validation-annotations/README.md` por si algún día se
 actualiza el motor.
 
-Fuera de alcance, como estaba previsto: edición directa del flujo de contenido,
-redacción segura y formas geométricas.
+**Edición directa del texto.** Añadida después, a petición. Sustituye el texto
+de verdad en el flujo de contenido en vez de taparlo. Dos modos, elegidos solos:
+reutilizar la fuente incrustada cuando cubre el texto nuevo, o borrar el texto y
+reescribirlo con la misma fuente del sistema cuando el subconjunto no llega
+—medido: la fuente del cuerpo de un PDF de Word no traía los dígitos 0 ni 2 a 9.
+
+Para localizar qué operador dibuja cada texto se recorre el flujo dos veces, con
+el procesador de iText y troceándolo en operadores, y se casan por índice. Ese
+recuento se rehace al aplicar y, si no coincide, la operación se rechaza en vez
+de arriesgarse. Obliga a reescribir el documento entero: iText no recoge los
+cambios de flujo de contenido en una revisión incremental.
+
+Fuera de alcance, como estaba previsto: redacción segura verificable y formas
+geométricas.
 
 ## Siguiente entrega
 

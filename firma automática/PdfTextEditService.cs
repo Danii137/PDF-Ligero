@@ -193,6 +193,12 @@ namespace FirmaAutomatica
         /// </summary>
         public string PreferredFontName { get; set; }
 
+        /// <summary>
+        /// Sustituir el texto de verdad en lugar de taparlo. Cambia por completo
+        /// como se escribe la revision: ver WriteEditedPdf.
+        /// </summary>
+        public bool ReplaceInPlace { get; set; }
+
         public float FontSizePoints { get; set; }
 
         public float MinimumFontSizePoints { get; set; }
@@ -286,6 +292,23 @@ namespace FirmaAutomatica
             string extractedText,
             string extractionError,
             PdfTextStyle detectedStyle)
+            : this(
+                analysis,
+                region,
+                extractedText,
+                extractionError,
+                detectedStyle,
+                null)
+        {
+        }
+
+        internal PdfTextEditPreparation(
+            PdfTextEditAnalysis analysis,
+            PdfTextEditRegion region,
+            string extractedText,
+            string extractionError,
+            PdfTextStyle detectedStyle,
+            PdfDirectTextCapability directCapability)
         {
             if (analysis == null)
             {
@@ -301,6 +324,7 @@ namespace FirmaAutomatica
             ExtractedText = extractedText ?? string.Empty;
             ExtractionError = extractionError ?? string.Empty;
             DetectedStyle = detectedStyle;
+            DirectCapability = directCapability;
         }
 
         public PdfTextEditAnalysis Analysis { get; private set; }
@@ -315,6 +339,12 @@ namespace FirmaAutomatica
         /// Tipografia real del texto seleccionado, o null si no se pudo leer.
         /// </summary>
         public PdfTextStyle DetectedStyle { get; private set; }
+
+        /// <summary>
+        /// Si la zona admite sustituir el texto de verdad, y por que no cuando
+        /// no lo admite.
+        /// </summary>
+        public PdfDirectTextCapability DirectCapability { get; private set; }
 
         public bool TextExtractionSucceeded
         {
@@ -530,12 +560,22 @@ namespace FirmaAutomatica
                     // falla se sigue igualmente, solo que sin preseleccionar.
                     var detectedStyle = PdfTextStyleProbe.Detect(reader, region);
 
+                    // Se pregunta con el texto que ya hay, que por definicion
+                    // cubre la fuente: asi se sabe si la zona se puede
+                    // reescribir. Que fuente acabe usandose se decide al
+                    // guardar, segun lo que se escriba.
+                    var directCapability = PdfDirectTextEditService.Analyze(
+                        reader,
+                        region,
+                        extractedText);
+
                     return new PdfTextEditPreparation(
                         analysis,
                         region,
                         extractedText,
                         extractionError,
-                        detectedStyle);
+                        detectedStyle,
+                        directCapability);
                 }
                 catch (InvalidDataException)
                 {
@@ -839,11 +879,15 @@ namespace FirmaAutomatica
                     1024 * 1024,
                     FileOptions.SequentialScan |
                     FileOptions.WriteThrough);
-                stamper = new PdfStamper(
-                    reader,
-                    output,
-                    '\0',
-                    true);
+                // La sustitucion real cambia el flujo de contenido de la
+                // pagina, y iText no recoge ese cambio en una revision
+                // incremental: hay que reescribir el documento entero. Es lo
+                // que ya hace PdfPageOrganizerService por el mismo motivo.
+                // Cubrir y escribir encima si puede ir en incremental, que es
+                // menos invasivo, asi que se conserva para ese caso.
+                stamper = replacement.ReplaceInPlace
+                    ? new PdfStamper(reader, output)
+                    : new PdfStamper(reader, output, '\0', true);
                 stamper.Writer.CloseStream = false;
                 stamper.RotateContents = false;
                 stamper.MoreInfo = CloneMetadata(expectations.Metadata);
@@ -864,6 +908,31 @@ namespace FirmaAutomatica
                 if (sourceXmpMetadata != null && sourceXmpMetadata.Length > 0)
                 {
                     stamper.XmpMetadata = sourceXmpMetadata;
+                }
+
+                if (replacement.ReplaceInPlace)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Report(reportProgress, 1, "Sustituyendo el texto");
+                    string appliedFont;
+                    PdfDirectTextEditService.Apply(
+                        reader,
+                        stamper,
+                        replacement.Region,
+                        replacement,
+                        transform,
+                        out appliedFont);
+                    fontDisplayName = appliedFont;
+                    actualFontSize = replacement.FontSizePoints;
+
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Report(reportProgress, 2, "Escribiendo revision segura");
+                    stamper.Close();
+                    stamper = null;
+                    output.Flush(true);
+                    output.Dispose();
+                    output = null;
+                    return expectations;
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();

@@ -133,6 +133,28 @@ letra nueva saldría en blanco. Por eso se busca esa misma fuente instalada en
 Windows; si no está o no cubre algún carácter, se recurre a una genérica y el
 texto se escribe igualmente.
 
+**Sustituir el texto de verdad.** La casilla `Sustituir el texto original`
+elimina el texto anterior del documento en vez de taparlo: deja de poder
+extraerse, copiarse o buscarse. Solo aparece disponible cuando la zona lo
+admite; si no, el consejo de la casilla explica por qué. Cuando está activa, el
+aviso del pie cambia para decir lo que va a pasar de verdad.
+
+Hay dos formas de hacerlo, y se elige sola:
+
+- si la fuente incrustada en el PDF trae todos los caracteres nuevos, se
+  sustituye la cadena tal cual y no cambia nada más;
+- si le falta alguno —los documentos de Word incrustan subconjuntos, y es
+  frecuente que no tengan los dígitos que no usabas—, se borra el texto anterior
+  y el nuevo se escribe con esa misma fuente instalada en Windows, en el mismo
+  sitio y tamaño.
+
+Al sustituir, el documento se reescribe entero en lugar de añadir una revisión
+incremental, porque es la única forma de que el cambio del contenido llegue al
+archivo. El original sigue sin tocarse y `Ctrl+Z` funciona igual.
+
+Sustituir no es lo mismo que un saneado completo: quita ese texto, pero no
+audita el resto del documento en busca de otros rastros.
+
 La operación entiende páginas giradas y cajas de página desplazadas, incrusta
 la fuente necesaria para texto Unicode y entra en el historial normal de
 `Ctrl+Z`/`Ctrl+Y`. El original permanece intacto. La cubierta es solo visual:

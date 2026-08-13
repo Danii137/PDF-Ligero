@@ -26,6 +26,8 @@ $exe = Join-Path $output "ContentEditEngineQa.exe"
     (Join-Path $sourceRoot "PdfTextPageTransform.cs") `
     (Join-Path $sourceRoot "PdfTextStyleProbe.cs") `
     (Join-Path $sourceRoot "PdfSystemFontCatalog.cs") `
+    (Join-Path $sourceRoot "PdfDirectTextEditService.cs") `
+    (Join-Path $sourceRoot "PdfContentStreamWriter.cs") `
     (Join-Path $sourceRoot "PdfEditSession.cs") `
     (Join-Path $validationRoot "ContentEditEngineQa.cs")
 if ($LASTEXITCODE -ne 0) {
