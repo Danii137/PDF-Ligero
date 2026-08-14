@@ -1726,9 +1726,21 @@ namespace FirmaAutomatica
                     descripcion + " guardado. El original no se ha modificado.");
                 outputPath = null;
 
+                // A partir de aqui las marcas YA estan guardadas. Refrescar
+                // la vista es un extra, y un fallo suyo no puede presentarse
+                // como que no se pudo guardar.
                 paso = "releer las marcas";
-                workspace.Annotation.ClearPending();
-                workspace.Annotation.LoadExisting(workspace.ContentPath);
+                try
+                {
+                    workspace.Annotation.ClearPending();
+                    workspace.Annotation.LoadExisting(workspace.ContentPath);
+                }
+                catch (Exception refresco)
+                {
+                    AppLog.Write(
+                        "Las marcas se guardaron, pero no se pudo refrescar " +
+                        "la vista: " + refresco);
+                }
 
                 // Aviso en la barra, no en una ventana: el trabajo ya esta
                 // hecho y no hay nada que decidir, asi que interrumpir sobra.

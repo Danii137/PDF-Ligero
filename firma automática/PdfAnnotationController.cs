@@ -591,9 +591,30 @@ namespace FirmaAutomatica
                 return;
             }
 
+            // Al aplicar una revision el visor recarga el documento y su lista
+            // de marcadores puede haberse quedado sin asignar. Tocarla a ciegas
+            // reventaba justo despues de guardar, cuando el trabajo ya estaba
+            // hecho.
             var marker = new AnnotationPageMarker(this, pageIndex);
+            try
+            {
+                if (renderer.IsDisposed || renderer.Markers == null)
+                {
+                    return;
+                }
+
+                renderer.Markers.Add(marker);
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+            catch (NullReferenceException)
+            {
+                return;
+            }
+
             pageMarkers.Add(pageIndex, marker);
-            renderer.Markers.Add(marker);
         }
 
         /// <summary>
@@ -904,6 +925,9 @@ namespace FirmaAutomatica
             catch (ObjectDisposedException)
             {
             }
+            catch (NullReferenceException)
+            {
+            }
         }
 
         private void Report(string mensaje)
@@ -1121,12 +1145,18 @@ namespace FirmaAutomatica
 
             try
             {
-                foreach (var marker in pageMarkers.Values)
+                if (!renderer.IsDisposed && renderer.Markers != null)
                 {
-                    renderer.Markers.Remove(marker);
+                    foreach (var marker in pageMarkers.Values)
+                    {
+                        renderer.Markers.Remove(marker);
+                    }
                 }
             }
             catch (ObjectDisposedException)
+            {
+            }
+            catch (NullReferenceException)
             {
             }
 
