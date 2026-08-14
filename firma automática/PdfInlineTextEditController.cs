@@ -73,10 +73,6 @@ namespace FirmaAutomatica
         private const int WmMouseMove = 0x0200;
         private const int WmKeyDown = 0x0100;
 
-        // El visor repone su propio cursor en cada WM_SETCURSOR; sin
-        // interceptarlo, el de escribir texto se pierde al mover el raton.
-        private const int WmSetCursor = 0x0020;
-
         private static readonly Color OutlineColor = Color.FromArgb(150, 150, 146);
         private static readonly Color HoverColor = Color.FromArgb(238, 91, 61);
         private static readonly Color SurfaceColor = Color.FromArgb(250, 249, 247);
@@ -110,6 +106,7 @@ namespace FirmaAutomatica
         private Button cancelButton;
         private Label hintLabel;
         private ToolTip barTip;
+        private PdfRendererCursorOverride cursorOverride;
 
         private bool disposed;
         private bool active;
@@ -143,6 +140,18 @@ namespace FirmaAutomatica
             this.canEdit = canEdit;
             this.loadBlocks = loadBlocks;
             this.reportStatus = reportStatus;
+
+            // Igual que en la anotacion: WM_SETCURSOR se envia y no se
+            // encola, asi que hay que engancharse al visor para imponerlo.
+            cursorOverride = new PdfRendererCursorOverride(
+                renderer,
+                delegate
+                {
+                    // Mientras la herramienta este encendida, cursor de texto en
+                    // toda la pagina: es lo que se espera de un editor, y no
+                    // depende de acertar si hay una linea justo debajo.
+                    return active ? Cursors.IBeam : null;
+                });
 
             renderer.Disposed += Renderer_Disposed;
             renderer.Scroll += Renderer_ViewportChanged;
@@ -212,14 +221,6 @@ namespace FirmaAutomatica
                 editing != null)
             {
                 CancelEditing();
-                return true;
-            }
-
-            if (message.Msg == WmSetCursor &&
-                renderer.IsHandleCreated &&
-                message.WParam == renderer.Handle)
-            {
-                Cursor.Current = hovered == null ? Cursors.Arrow : Cursors.IBeam;
                 return true;
             }
 
@@ -1039,6 +1040,12 @@ namespace FirmaAutomatica
 
             disposed = true;
             Application.RemoveMessageFilter(this);
+
+            if (cursorOverride != null)
+            {
+                cursorOverride.Dispose();
+                cursorOverride = null;
+            }
 
             try
             {

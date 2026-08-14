@@ -26,10 +26,6 @@ namespace FirmaAutomatica
         private const int WmMouseMove = 0x0200;
         private const int WmLButtonUp = 0x0202;
 
-        // El visor decide el cursor por su cuenta en cada WM_SETCURSOR: pone la
-        // mano para desplazar la pagina. Si no se intercepta ese mensaje, el
-        // cursor de la herramienta se pierde en cuanto se mueve el raton.
-        private const int WmSetCursor = 0x0020;
 
         // Distancia minima entre puntos guardados. Sin ella un trazo lento
         // acumula miles de puntos casi iguales y el PDF engorda sin motivo.
@@ -69,6 +65,7 @@ namespace FirmaAutomatica
         private readonly List<Button> colorButtons = new List<Button>();
         private readonly List<Button> widthButtons = new List<Button>();
         private ToolTip toolbarTip;
+        private PdfRendererCursorOverride cursorOverride;
 
         private bool disposed;
         private bool active;
@@ -101,6 +98,12 @@ namespace FirmaAutomatica
             HighlightColor = Color.FromArgb(255, 214, 64);
             NoteColor = Color.FromArgb(72, 133, 197);
             WidthPoints = 2F;
+
+            // El cursor se impone enganchandose al visor: los filtros de
+            // mensajes no ven WM_SETCURSOR porque se envia, no se encola.
+            cursorOverride = new PdfRendererCursorOverride(
+                renderer,
+                delegate { return active ? CursorDeLaHerramienta() : null; });
 
             renderer.Disposed += Renderer_Disposed;
             Application.AddMessageFilter(this);
@@ -223,16 +226,6 @@ namespace FirmaAutomatica
                 dragging)
             {
                 CancelCurrent();
-                return true;
-            }
-
-            // Se impone el cursor de la herramienta antes de que el visor
-            // ponga el suyo.
-            if (message.Msg == WmSetCursor &&
-                renderer.IsHandleCreated &&
-                message.WParam == renderer.Handle)
-            {
-                Cursor.Current = CursorDeLaHerramienta();
                 return true;
             }
 
@@ -1119,6 +1112,12 @@ namespace FirmaAutomatica
 
             disposed = true;
             Application.RemoveMessageFilter(this);
+
+            if (cursorOverride != null)
+            {
+                cursorOverride.Dispose();
+                cursorOverride = null;
+            }
 
             try
             {
