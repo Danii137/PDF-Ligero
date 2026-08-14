@@ -1287,6 +1287,11 @@ namespace FirmaAutomatica
                 workspace.IsLoaded &&
                 !workspace.IsDisposed &&
                 workspace.Document != null &&
+                // Sin sesion de edicion no hay donde escribir la revision, y
+                // las marcas se perderian al guardar. Es la misma condicion que
+                // ya exigen el editor de texto y los marcadores.
+                workspace.EditSession != null &&
+                !workspace.EditHistoryFaulted &&
                 !workspace.IsPasswordProtected &&
                 comparisonSurface == null &&
                 !searchPanel.Visible &&
@@ -1351,6 +1356,17 @@ namespace FirmaAutomatica
             var bloque = peticion.Block;
             var editSession = workspace.EditSession;
             var sourcePath = workspace.ContentPath;
+            if (editSession == null || string.IsNullOrEmpty(sourcePath))
+            {
+                AppLog.Write(
+                    "No se puede sustituir el texto: el documento no tiene " +
+                    "sesión de edición activa.");
+                documentLabel.Text =
+                    "No se puede editar el texto de este documento. " +
+                    "Guarda una copia y vuelve a abrirla.";
+                return;
+            }
+
             string outputPath = null;
 
             contentEditInProgress = true;
@@ -1606,6 +1622,11 @@ namespace FirmaAutomatica
                 workspace.IsLoaded &&
                 !workspace.IsDisposed &&
                 workspace.Document != null &&
+                // Sin sesion de edicion no hay donde escribir la revision, y
+                // las marcas se perderian al guardar. Es la misma condicion que
+                // ya exigen el editor de texto y los marcadores.
+                workspace.EditSession != null &&
+                !workspace.EditHistoryFaulted &&
                 comparisonSurface == null &&
                 !searchPanel.Visible &&
                 !pageInsertInProgress &&
@@ -1639,6 +1660,19 @@ namespace FirmaAutomatica
 
             var editSession = workspace.EditSession;
             var sourcePath = workspace.ContentPath;
+            if (editSession == null || string.IsNullOrEmpty(sourcePath))
+            {
+                // Las marcas se quedan donde estan, sin perderse, y se dice por
+                // que en la barra en vez de con una ventana.
+                AppLog.Write(
+                    "No se pueden guardar las marcas: el documento no tiene " +
+                    "sesión de edición activa.");
+                documentLabel.Text =
+                    "No se pueden guardar las marcas en este documento. " +
+                    "Las marcas siguen ahí; guarda una copia y vuelve a abrirla.";
+                return;
+            }
+
             var descripcion = workspace.Annotation.Pending.Describe();
             string outputPath = null;
 

@@ -121,5 +121,10 @@ $y2 = $r.T + [int]($alto * 0.305)
 Start-Sleep -Seconds 2
 Capturar 'subrayado-seleccion.png'
 
+# Pulsar "Guardar marcas", medido sobre una captura real
+[Raton2]::Click(($r.L + 1035), ($r.T + 185))
+Start-Sleep -Seconds 6
+Capturar 'subrayado-guardado.png'
+
 Write-Host "Proceso vivo: $(-not $proc.HasExited)"
 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
