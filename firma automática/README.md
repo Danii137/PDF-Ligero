@@ -115,8 +115,10 @@ Pulsa el botón `Editar` de la barra derecha o `Ctrl+Mayús+E`. Las líneas de t
 se recuadran y basta pinchar una para escribir encima, como en cualquier editor
 de PDF conocido.
 
-Al pinchar aparece el texto de esa línea listo para cambiarlo y una barra
-flotante con **fuente, tamaño, negrita, cursiva y color**. `Enter` o `Aplicar`
+Al pinchar escribes **directamente sobre la página**, sin recuadros ni cuadros
+de diálogo: el texto se ve con su misma letra y una línea de acento marca dónde
+estás. Aparece además una barra flotante con **fuente, tamaño, negrita, cursiva
+y color**. `Enter` o `Aplicar`
 guardan el cambio; `Esc` o `Cancelar` lo dejan como estaba. Pinchar fuera
 también aplica, como en un procesador de textos.
 
@@ -206,8 +208,11 @@ grosores.
 
 - **Rotulador**: arrastra para dibujar a mano alzada sobre la página, como si
   rodearas una zona de un plano con un boli.
-- **Subrayador**: arrastra sobre un texto para marcarlo en color translúcido,
-  que deja leer lo de debajo.
+- **Subrayador**: arrastra sobre el texto como si lo seleccionaras y se marca
+  exactamente ese texto, en color translúcido que deja leer lo de debajo. Sigue
+  a las palabras: si la selección abarca varias líneas, cada una se subraya por
+  separado en vez de pintar un cuadro que englobe los márgenes. Sobre un plano o
+  una imagen, donde no hay texto, marca la zona arrastrada.
 - **Nota**: haz clic donde quieras anclarla y escribe el comentario.
 
 Las marcas se acumulan mientras trabajas y se escriben todas de una vez al

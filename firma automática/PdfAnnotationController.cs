@@ -34,6 +34,9 @@ namespace FirmaAutomatica
         private readonly Func<bool> canAnnotate;
         private readonly Action<string> reportStatus;
         private readonly Func<string> resolveAuthor;
+        private readonly Func<int, IList<PdfTextBlock>> loadBlocks;
+        private readonly Dictionary<int, IList<PdfTextBlock>> blocksByPage =
+            new Dictionary<int, IList<PdfTextBlock>>();
         private readonly Dictionary<int, AnnotationPageMarker> pageMarkers =
             new Dictionary<int, AnnotationPageMarker>();
 
@@ -67,13 +70,15 @@ namespace FirmaAutomatica
         private bool dragging;
         private PdfAnnotationItem current;
         private PointF lastPoint;
+        private PointF highlightAnchor;
         private int currentPage = -1;
 
         public PdfAnnotationController(
             PdfRenderer renderer,
             Func<bool> canAnnotate,
             Func<string> resolveAuthor,
-            Action<string> reportStatus)
+            Action<string> reportStatus,
+            Func<int, IList<PdfTextBlock>> loadBlocks)
         {
             if (renderer == null)
             {
@@ -84,6 +89,7 @@ namespace FirmaAutomatica
             this.canAnnotate = canAnnotate;
             this.resolveAuthor = resolveAuthor;
             this.reportStatus = reportStatus;
+            this.loadBlocks = loadBlocks;
 
             Tool = PdfAnnotationKind.Ink;
             InkColor = Color.FromArgb(238, 91, 61);
@@ -169,6 +175,7 @@ namespace FirmaAutomatica
         {
             saved.Clear();
             pageMarkers.Clear();
+            blocksByPage.Clear();
             foreach (var item in PdfAnnotationService.Read(pdfPath))
             {
                 saved.Add(item);
@@ -290,6 +297,7 @@ namespace FirmaAutomatica
                     punto.Location.Y,
                     0F,
                     0F);
+                highlightAnchor = punto.Location;
             }
 
             lastPoint = punto.Location;
@@ -330,7 +338,7 @@ namespace FirmaAutomatica
             }
             else
             {
-                current.Area = FromCorners(lastPoint, punto.Location);
+                ActualizarSubrayado(punto.Location);
             }
 
             Refresh();
@@ -360,6 +368,139 @@ namespace FirmaAutomatica
             current = null;
             Refresh();
             return true;
+        }
+
+        /// <summary>
+        /// Rehace los tramos subrayados entre el punto de anclaje y el actual.
+        ///
+        /// Sigue al texto, como una seleccion de un procesador de textos: la
+        /// primera linea desde donde se empezo hasta su final, las de en medio
+        /// enteras y la ultima hasta donde va el raton. Si no hay texto debajo
+        /// se recurre al rectangulo suelto de antes, para poder marcar tambien
+        /// sobre un plano o una imagen.
+        /// </summary>
+        private void ActualizarSubrayado(PointF actual)
+        {
+            current.Quads.Clear();
+
+            var bloques = EnsureBlocks(currentPage + 1);
+            var desde = LocalizarPunto(bloques, highlightAnchor);
+            var hasta = LocalizarPunto(bloques, actual);
+
+            if (desde == null || hasta == null)
+            {
+                current.Area = FromCorners(highlightAnchor, actual);
+                return;
+            }
+
+            var a = desde;
+            var b = hasta;
+            if (a.Linea > b.Linea ||
+                (a.Linea == b.Linea && a.Caracter > b.Caracter))
+            {
+                a = hasta;
+                b = desde;
+            }
+
+            for (var i = a.Linea; i <= b.Linea && i < bloques.Count; i++)
+            {
+                var bloque = bloques[i];
+                var inicio = i == a.Linea ? a.Caracter : 0;
+                var fin = i == b.Linea
+                    ? b.Caracter
+                    : bloque.CharacterBounds.Count;
+                var tramo = bloque.SpanBounds(inicio, fin);
+                if (tramo.Width > 0.01F && tramo.Height > 0.01F)
+                {
+                    current.Quads.Add(tramo);
+                }
+            }
+
+            current.Area = current.Quads.Count > 0
+                ? current.GetBounds()
+                : FromCorners(highlightAnchor, actual);
+        }
+
+        /// <summary>Linea y caracter que hay bajo un punto de la pagina.</summary>
+        private PosicionEnTexto LocalizarPunto(
+            IList<PdfTextBlock> bloques,
+            PointF punto)
+        {
+            if (bloques == null || bloques.Count == 0)
+            {
+                return null;
+            }
+
+            for (var i = 0; i < bloques.Count; i++)
+            {
+                if (bloques[i].Contains(punto.X, punto.Y))
+                {
+                    return new PosicionEnTexto(
+                        i,
+                        bloques[i].NearestCharacterIndex(punto.X));
+                }
+            }
+
+            // Fuera de una linea se toma la mas cercana en vertical, que es lo
+            // que hace cualquier seleccion de texto cuando el raton se sale.
+            var mejor = -1;
+            var distancia = float.MaxValue;
+            for (var i = 0; i < bloques.Count; i++)
+            {
+                var centro = bloques[i].Bounds.Top +
+                    (bloques[i].Bounds.Height / 2F);
+                var d = Math.Abs(centro - punto.Y);
+                if (d < distancia)
+                {
+                    distancia = d;
+                    mejor = i;
+                }
+            }
+
+            if (mejor < 0 || distancia > 40F)
+            {
+                return null;
+            }
+
+            return new PosicionEnTexto(
+                mejor,
+                bloques[mejor].NearestCharacterIndex(punto.X));
+        }
+
+        private IList<PdfTextBlock> EnsureBlocks(int pageNumber)
+        {
+            IList<PdfTextBlock> bloques;
+            if (blocksByPage.TryGetValue(pageNumber, out bloques))
+            {
+                return bloques;
+            }
+
+            try
+            {
+                bloques = loadBlocks == null
+                    ? new List<PdfTextBlock>()
+                    : (loadBlocks(pageNumber) ?? new List<PdfTextBlock>());
+            }
+            catch (Exception)
+            {
+                bloques = new List<PdfTextBlock>();
+            }
+
+            blocksByPage[pageNumber] = bloques;
+            return bloques;
+        }
+
+        private sealed class PosicionEnTexto
+        {
+            public PosicionEnTexto(int linea, int caracter)
+            {
+                Linea = linea;
+                Caracter = caracter;
+            }
+
+            public int Linea { get; private set; }
+
+            public int Caracter { get; private set; }
         }
 
         private void CreateNote(PdfPoint punto)
@@ -812,7 +953,25 @@ namespace FirmaAutomatica
                         (int)(Math.Max(0.1F, item.Opacity) * 255F),
                         item.Color)))
                 {
-                    graphics.FillRectangle(brocha, bounds);
+                    if (item.Quads.Count == 0)
+                    {
+                        graphics.FillRectangle(brocha, bounds);
+                        return;
+                    }
+
+                    // Un rectangulo por linea subrayada, no uno que englobe
+                    // los margenes de todas.
+                    foreach (var tramo in item.Quads)
+                    {
+                        var caja = targetRenderer.BoundsFromPdf(
+                            new PdfiumViewer.PdfRectangle(
+                                item.PageNumber - 1,
+                                tramo));
+                        if (caja.Width > 0 && caja.Height > 0)
+                        {
+                            graphics.FillRectangle(brocha, caja);
+                        }
+                    }
                 }
 
                 return;

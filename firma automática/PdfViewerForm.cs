@@ -1558,6 +1558,10 @@ namespace FirmaAutomatica
                         delegate(string mensaje)
                         {
                             documentLabel.Text = mensaje;
+                        },
+                        delegate(int pagina)
+                        {
+                            return LoadTextBlocks(destino, pagina);
                         });
                     workspace.Annotation.SaveRequested +=
                         AnnotationController_SaveRequested;
@@ -9201,6 +9205,15 @@ namespace FirmaAutomatica
                 !searchPanel.Visible &&
                 !IsTextEditSelectionActive &&
                 !IsPageStructureOperationInProgress &&
+                // Las herramientas que usan el arrastre para lo suyo tienen
+                // preferencia: sin esto, el gesto de ampliar por rectangulo se
+                // quedaba con el trazo del rotulador o con el subrayado.
+                (workspace.Measurement == null ||
+                    !workspace.Measurement.IsActive) &&
+                (workspace.Annotation == null ||
+                    !workspace.Annotation.IsActive) &&
+                (workspace.InlineEdit == null ||
+                    !workspace.InlineEdit.IsActive) &&
                 !activatingWorkspace &&
                 !closingAll;
         }

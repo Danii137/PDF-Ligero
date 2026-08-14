@@ -442,9 +442,13 @@ namespace FirmaAutomatica
                 return;
             }
 
+            // Sin bordes y del color del papel: la idea es que no parezca un
+            // formulario encima del PDF, sino que se escriba en el documento.
+            // Se conserva un TextBox de verdad para tener cursor, seleccion,
+            // teclas de edicion y portapapeles sin reimplementarlos.
             editor = new TextBox
             {
-                BorderStyle = BorderStyle.FixedSingle,
+                BorderStyle = BorderStyle.None,
                 BackColor = Color.White,
                 Multiline = false,
                 Visible = false,
@@ -535,14 +539,20 @@ namespace FirmaAutomatica
                     editing.PageNumber - 1,
                     editing.Bounds));
 
-            // Un poco de aire alrededor: el recuadro de la linea es justo el
-            // alto de las letras y el cuadro de texto necesita algo mas.
-            var margen = 3;
-            var alto = Math.Max(editor.PreferredHeight, bounds.Height + (margen * 2));
+            // El cuadro se centra sobre la linea original para que las letras
+            // caigan donde estaban. Se le da holgura a la derecha porque el
+            // texto nuevo casi siempre es mas largo que el que habia.
+            var alto = editor.PreferredHeight;
+            var centro = bounds.Top + (bounds.Height / 2);
+            var ancho = Math.Max(
+                60,
+                Math.Min(
+                    renderer.ClientSize.Width - bounds.Left - 12,
+                    bounds.Width + 220));
             editor.SetBounds(
-                bounds.Left - margen,
-                bounds.Top - margen - ((alto - bounds.Height) / 2) + margen,
-                Math.Max(80, bounds.Width + (margen * 4)),
+                bounds.Left,
+                centro - (alto / 2),
+                ancho,
                 alto);
         }
 
@@ -865,6 +875,25 @@ namespace FirmaAutomatica
                         }
 
                         graphics.DrawRectangle(suave, caja);
+                    }
+                }
+
+                // La linea que se esta editando se marca con una linea de
+                // acento debajo, no con un recuadro: asi se sabe donde estas
+                // sin que parezca un cuadro de dialogo sobre el documento.
+                if (editing != null &&
+                    editing.PageNumber - 1 == pageIndex &&
+                    editor != null &&
+                    editor.Visible)
+                {
+                    using (var acento = new Pen(HoverColor, 1.6f))
+                    {
+                        graphics.DrawLine(
+                            acento,
+                            editor.Left,
+                            editor.Bottom + 1,
+                            editor.Right,
+                            editor.Bottom + 1);
                     }
                 }
 

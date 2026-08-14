@@ -28,6 +28,7 @@ namespace FirmaAutomatica
     internal sealed class PdfAnnotationItem
     {
         private readonly List<List<PointF>> strokes = new List<List<PointF>>();
+        private readonly List<RectangleF> quads = new List<RectangleF>();
 
         public PdfAnnotationItem(PdfAnnotationKind kind, int pageNumber)
         {
@@ -73,6 +74,16 @@ namespace FirmaAutomatica
         /// <summary>Zona marcada por el subrayador o punto de la nota.</summary>
         public RectangleF Area { get; set; }
 
+        /// <summary>
+        /// Tramos subrayados, uno por linea de texto. El subrayador sigue al
+        /// texto, asi que una seleccion de varias lineas produce varios
+        /// rectangulos y no un cuadro que englobe los margenes.
+        /// </summary>
+        public IList<RectangleF> Quads
+        {
+            get { return quads; }
+        }
+
         public void BeginStroke()
         {
             strokes.Add(new List<PointF>());
@@ -108,7 +119,8 @@ namespace FirmaAutomatica
             }
             if (Kind == PdfAnnotationKind.Highlight)
             {
-                return Area.Width <= 0.01F || Area.Height <= 0.01F;
+                return quads.Count == 0 &&
+                    (Area.Width <= 0.01F || Area.Height <= 0.01F);
             }
 
             return string.IsNullOrWhiteSpace(Contents);
@@ -121,6 +133,17 @@ namespace FirmaAutomatica
         /// </summary>
         public RectangleF GetBounds()
         {
+            if (Kind == PdfAnnotationKind.Highlight && quads.Count > 0)
+            {
+                var union = quads[0];
+                for (var i = 1; i < quads.Count; i++)
+                {
+                    union = RectangleF.Union(union, quads[i]);
+                }
+
+                return union;
+            }
+
             if (Kind != PdfAnnotationKind.Ink)
             {
                 return Area;

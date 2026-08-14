@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using iTextSharp.text;
 using iTextSharp.text.pdf;
 using PdfRectangle = iTextSharp.text.Rectangle;
@@ -140,6 +141,7 @@ namespace FirmaAutomatica
                 item = new PdfAnnotationItem(PdfAnnotationKind.Highlight, page);
                 item.Area = ReadArea(annotation, transform);
                 item.Opacity = ReadOpacity(annotation, 0.4F);
+                LeerTramos(annotation, transform, item);
             }
             else if (PdfName.TEXT.Equals(subtype))
             {
@@ -230,6 +232,54 @@ namespace FirmaAutomatica
 
             item.DropEmptyStrokes();
             return item;
+        }
+
+        /// <summary>
+        /// Recupera los tramos subrayados de /QuadPoints, que vienen de ocho en
+        /// ocho numeros: las cuatro esquinas de cada tramo.
+        /// </summary>
+        private static void LeerTramos(
+            PdfDictionary annotation,
+            PdfTextPageTransform transform,
+            PdfAnnotationItem item)
+        {
+            var puntos = annotation.GetAsArray(PdfName.QUADPOINTS);
+            if (puntos == null || puntos.Size < 8)
+            {
+                return;
+            }
+
+            for (var i = 0; i + 7 < puntos.Size; i += 8)
+            {
+                var xs = new List<float>();
+                var ys = new List<float>();
+                for (var j = 0; j < 8; j += 2)
+                {
+                    var x = puntos.GetAsNumber(i + j);
+                    var y = puntos.GetAsNumber(i + j + 1);
+                    if (x == null || y == null)
+                    {
+                        return;
+                    }
+
+                    var visual = transform.RawToVisual(x.FloatValue, y.FloatValue);
+                    xs.Add(visual.X);
+                    ys.Add(visual.Y);
+                }
+
+                var izquierda = xs.Min();
+                var derecha = xs.Max();
+                var abajo = ys.Min();
+                var arriba = ys.Max();
+                if (derecha - izquierda > 0.01F && arriba - abajo > 0.01F)
+                {
+                    item.Quads.Add(new RectangleF(
+                        izquierda,
+                        abajo,
+                        derecha - izquierda,
+                        arriba - abajo));
+                }
+            }
         }
 
         private static RectangleF ReadArea(
@@ -564,17 +614,51 @@ namespace FirmaAutomatica
             PdfTextPageTransform transform,
             PdfAnnotationItem item)
         {
-            var rect = ToRawRectangle(transform, item.Area);
+            // Un tramo por linea de texto subrayada; si no hay tramos, el
+            // rectangulo suelto, que es como se guardaban antes.
+            var tramos = new List<PdfRectangle>();
+            if (item.Quads.Count > 0)
+            {
+                foreach (var tramo in item.Quads)
+                {
+                    var caja = ToRawRectangle(transform, tramo);
+                    if (caja.Width > 0.01F && caja.Height > 0.01F)
+                    {
+                        tramos.Add(caja);
+                    }
+                }
+            }
+
+            if (tramos.Count == 0)
+            {
+                tramos.Add(ToRawRectangle(transform, item.Area));
+            }
+
+            var rect = tramos[0];
+            for (var i = 1; i < tramos.Count; i++)
+            {
+                rect = new PdfRectangle(
+                    Math.Min(rect.Left, tramos[i].Left),
+                    Math.Min(rect.Bottom, tramos[i].Bottom),
+                    Math.Max(rect.Right, tramos[i].Right),
+                    Math.Max(rect.Top, tramos[i].Top));
+            }
 
             // Los quadPoints van en el orden que pide el formato: superior
             // izquierda, superior derecha, inferior izquierda, inferior derecha.
-            var quad = new[]
+            var quad = new float[tramos.Count * 8];
+            for (var i = 0; i < tramos.Count; i++)
             {
-                rect.Left, rect.Top,
-                rect.Right, rect.Top,
-                rect.Left, rect.Bottom,
-                rect.Right, rect.Bottom
-            };
+                var caja = tramos[i];
+                quad[(i * 8) + 0] = caja.Left;
+                quad[(i * 8) + 1] = caja.Top;
+                quad[(i * 8) + 2] = caja.Right;
+                quad[(i * 8) + 3] = caja.Top;
+                quad[(i * 8) + 4] = caja.Left;
+                quad[(i * 8) + 5] = caja.Bottom;
+                quad[(i * 8) + 6] = caja.Right;
+                quad[(i * 8) + 7] = caja.Bottom;
+            }
 
             var annotation = PdfAnnotation.CreateMarkup(
                 stamper.Writer,
@@ -594,11 +678,15 @@ namespace FirmaAutomatica
             estado.FillOpacity = Clamp(item.Opacity, 0.1F, 1F);
             appearance.SetGState(estado);
             appearance.SetColorFill(ToBaseColor(item.Color));
-            appearance.Rectangle(
-                rect.Left,
-                rect.Bottom,
-                rect.Width,
-                rect.Height);
+            foreach (var caja in tramos)
+            {
+                appearance.Rectangle(
+                    caja.Left,
+                    caja.Bottom,
+                    caja.Width,
+                    caja.Height);
+            }
+
             appearance.Fill();
             annotation.SetAppearance(PdfName.N, appearance);
 

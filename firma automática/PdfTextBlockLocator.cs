@@ -20,6 +20,9 @@ namespace FirmaAutomatica
     /// </summary>
     internal sealed class PdfTextBlock
     {
+        private readonly List<RectangleF> characterBounds =
+            new List<RectangleF>();
+
         internal PdfTextBlock(
             int pageNumber,
             string text,
@@ -44,6 +47,69 @@ namespace FirmaAutomatica
         public float BaselineY { get; private set; }
 
         public PdfTextStyle Style { get; private set; }
+
+        /// <summary>
+        /// Rectangulo de cada caracter de la linea, en el orden en que se leen.
+        /// Lo usa el subrayador para marcar exactamente el texto que se
+        /// arrastra, en vez de un recuadro suelto.
+        /// </summary>
+        public IList<RectangleF> CharacterBounds
+        {
+            get { return characterBounds; }
+        }
+
+        /// <summary>Indice del caracter mas cercano a una x de la linea.</summary>
+        public int NearestCharacterIndex(float x)
+        {
+            if (characterBounds.Count == 0)
+            {
+                return 0;
+            }
+
+            for (var i = 0; i < characterBounds.Count; i++)
+            {
+                var caja = characterBounds[i];
+                if (x <= caja.Left + (caja.Width / 2F))
+                {
+                    return i;
+                }
+            }
+
+            return characterBounds.Count;
+        }
+
+        /// <summary>
+        /// Rectangulo que envuelve un tramo de caracteres. Es lo que se subraya
+        /// de una linea.
+        /// </summary>
+        public RectangleF SpanBounds(int desde, int hasta)
+        {
+            var inicio = Math.Max(0, Math.Min(desde, hasta));
+            var fin = Math.Min(characterBounds.Count, Math.Max(desde, hasta));
+            if (inicio >= fin)
+            {
+                return RectangleF.Empty;
+            }
+
+            var izquierda = float.MaxValue;
+            var derecha = float.MinValue;
+            for (var i = inicio; i < fin; i++)
+            {
+                izquierda = Math.Min(izquierda, characterBounds[i].Left);
+                derecha = Math.Max(derecha, characterBounds[i].Right);
+            }
+
+            if (derecha <= izquierda)
+            {
+                return RectangleF.Empty;
+            }
+
+            return new RectangleF(
+                izquierda,
+                Bounds.Top,
+                derecha - izquierda,
+                Bounds.Height);
+        }
 
         public bool Contains(float x, float y)
         {
@@ -100,6 +166,7 @@ namespace FirmaAutomatica
 
         private sealed class Fragmento
         {
+            public readonly List<RectangleF> Caracteres = new List<RectangleF>();
             public string Texto;
             public float Izquierda;
             public float Derecha;
@@ -180,7 +247,50 @@ namespace FirmaAutomatica
                 fragmento.Subconjunto = PdfTextStyleProbe.IsSubset(bruto);
                 fragmento.Color = PdfTextStyleProbe.ToColor(
                     renderInfo.GetFillColor());
+                RecogerCaracteres(renderInfo, fragmento);
                 fragmentos.Add(fragmento);
+            }
+
+            /// <summary>
+            /// Rectangulo de cada caracter del fragmento. iText los da uno a
+            /// uno, y es lo que permite seleccionar texto por la mitad de una
+            /// palabra.
+            /// </summary>
+            private static void RecogerCaracteres(
+                TextRenderInfo renderInfo,
+                Fragmento fragmento)
+            {
+                try
+                {
+                    foreach (var caracter in renderInfo.GetCharacterRenderInfos())
+                    {
+                        var linea = caracter.GetBaseline();
+                        var a = linea.GetStartPoint();
+                        var b = linea.GetEndPoint();
+                        var arriba = caracter.GetAscentLine().GetStartPoint();
+                        var abajo = caracter.GetDescentLine().GetStartPoint();
+
+                        var izquierda = Math.Min(a[Vector.I1], b[Vector.I1]);
+                        var derecha = Math.Max(a[Vector.I1], b[Vector.I1]);
+                        if (derecha - izquierda <= 0F)
+                        {
+                            // Un caracter sin avance debe ocupar sitio igual,
+                            // para que los indices sigan cuadrando con el texto.
+                            derecha = izquierda + 0.01F;
+                        }
+
+                        var alto = Math.Abs(arriba[Vector.I2] - abajo[Vector.I2]);
+                        fragmento.Caracteres.Add(new RectangleF(
+                            izquierda,
+                            Math.Min(arriba[Vector.I2], abajo[Vector.I2]),
+                            derecha - izquierda,
+                            alto));
+                    }
+                }
+                catch (Exception)
+                {
+                    fragmento.Caracteres.Clear();
+                }
             }
 
             /// <summary>
@@ -270,6 +380,8 @@ namespace FirmaAutomatica
                     return;
                 }
 
+                var cajas = ReunirCaracteres(linea);
+
                 var izquierda = linea.Min(f => f.Izquierda);
                 var derecha = linea.Max(f => f.Derecha);
                 var abajo = linea.Min(f => f.Abajo);
@@ -302,7 +414,7 @@ namespace FirmaAutomatica
                     mezcla,
                     total);
 
-                bloques.Add(new PdfTextBlock(
+                var bloque = new PdfTextBlock(
                     pageNumber,
                     contenido,
                     new RectangleF(
@@ -311,7 +423,67 @@ namespace FirmaAutomatica
                         derecha - izquierda,
                         arriba - abajo),
                     dominante.Base,
-                    estilo));
+                    estilo);
+                foreach (var caja in cajas)
+                {
+                    bloque.CharacterBounds.Add(caja);
+                }
+
+                bloques.Add(bloque);
+            }
+
+            /// <summary>
+            /// Rectangulos de la linea en el mismo orden que su texto,
+            /// incluidos los espacios que el PDF expresa como saltos de
+            /// posicion y no como caracteres.
+            /// </summary>
+            private static List<RectangleF> ReunirCaracteres(
+                List<Fragmento> linea)
+            {
+                var cajas = new List<RectangleF>();
+                for (var indice = 0; indice < linea.Count; indice++)
+                {
+                    var fragmento = linea[indice];
+                    if (indice > 0)
+                    {
+                        var anterior = linea[indice - 1];
+                        var hueco = fragmento.Izquierda - anterior.Derecha;
+                        if (hueco > Math.Max(0.6F, anterior.AnchoEspacio * 0.45F) &&
+                            !anterior.Texto.EndsWith(" ", StringComparison.Ordinal) &&
+                            !fragmento.Texto.StartsWith(" ", StringComparison.Ordinal))
+                        {
+                            cajas.Add(new RectangleF(
+                                anterior.Derecha,
+                                Math.Min(anterior.Abajo, fragmento.Abajo),
+                                Math.Max(0.01F, hueco),
+                                Math.Max(anterior.Arriba, fragmento.Arriba) -
+                                    Math.Min(anterior.Abajo, fragmento.Abajo)));
+                        }
+                    }
+
+                    if (fragmento.Caracteres.Count == fragmento.Texto.Length)
+                    {
+                        cajas.AddRange(fragmento.Caracteres);
+                        continue;
+                    }
+
+                    // Si iText no dio un rectangulo por caracter, se reparte el
+                    // ancho del fragmento: basta de sobra para subrayar.
+                    var ancho = fragmento.Texto.Length == 0
+                        ? 0F
+                        : (fragmento.Derecha - fragmento.Izquierda) /
+                            fragmento.Texto.Length;
+                    for (var i = 0; i < fragmento.Texto.Length; i++)
+                    {
+                        cajas.Add(new RectangleF(
+                            fragmento.Izquierda + (ancho * i),
+                            fragmento.Abajo,
+                            Math.Max(0.01F, ancho),
+                            fragmento.Arriba - fragmento.Abajo));
+                    }
+                }
+
+                return cajas;
             }
         }
     }
