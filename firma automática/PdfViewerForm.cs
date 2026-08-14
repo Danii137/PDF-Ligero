@@ -1673,6 +1673,10 @@ namespace FirmaAutomatica
                 return;
             }
 
+            // El ejecutable va optimizado y los metodos pequeños se integran,
+            // asi que la pila de una excepcion aqui pierde los marcos y no dice
+            // donde fallo. Se deja rastro del paso alcanzado para poder situarlo.
+            var paso = "inicio";
             var descripcion = workspace.Annotation.Pending.Describe();
             string outputPath = null;
 
@@ -1680,6 +1684,7 @@ namespace FirmaAutomatica
             RefreshToolAvailability();
             try
             {
+                paso = "estimar tamaño";
                 long estimado;
                 try
                 {
@@ -1691,7 +1696,9 @@ namespace FirmaAutomatica
                     estimado = long.MaxValue;
                 }
 
+                paso = "reservar revisión";
                 outputPath = editSession.ReserveRevisionPath(estimado);
+                paso = "escribir las marcas";
                 PdfAnnotationSaveResult resultado = null;
                 using (var progress = new PdfBackgroundOperationForm(
                     "Anotar",
@@ -1708,6 +1715,7 @@ namespace FirmaAutomatica
                     progress.Run(this);
                 }
 
+                paso = "aplicar la revisión";
                 ApplyContentRevision(
                     workspace,
                     editSession,
@@ -1718,6 +1726,7 @@ namespace FirmaAutomatica
                     descripcion + " guardado. El original no se ha modificado.");
                 outputPath = null;
 
+                paso = "releer las marcas";
                 workspace.Annotation.ClearPending();
                 workspace.Annotation.LoadExisting(workspace.ContentPath);
 
@@ -1733,7 +1742,9 @@ namespace FirmaAutomatica
             }
             catch (Exception ex)
             {
-                AppLog.Write("No se pudieron guardar las marcas: " + ex);
+                AppLog.Write(
+                    "No se pudieron guardar las marcas (paso: " + paso + "): " +
+                    ex);
                 ShowPdfProblem(
                     "Anotar",
                     "No se pudieron guardar las marcas.",
