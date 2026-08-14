@@ -430,6 +430,26 @@ leer PDFs sigue usando la carga perezosa de siempre. Los originales nunca se
 sobrescriben. Incluso una revisión ya guardada conserva su pequeño manifiesto
 de emergencia hasta completar un cierre normal y comprobado.
 
+## Imprimir
+
+`Ctrl+P` abre la vista previa y su botón `Imprimir` lleva a un cuadro propio con:
+
+- **impresora**, entre las instaladas;
+- **tamaño de papel** y **orientación**;
+- **color o blanco y negro**;
+- **doble cara**, con giro largo o corto;
+- **copias**;
+- **qué páginas**: todas, solo la actual, un intervalo como `1-5, 8, 11-13`,
+  solo las impares o solo las pares.
+
+Solo se ofrece lo que admite la impresora elegida: si no imprime en color o no
+tiene dúplex, esas opciones aparecen deshabilitadas en vez de mandar un trabajo
+que saldría mal. Antes de imprimir se indica cuántas páginas van a salir.
+
+Se usa un cuadro propio y no el de Windows porque aquel no permite elegir
+páginas sueltas ni solo pares o impares, que es justo lo que hace falta para
+reimprimir parte de una memoria sin gastar el resto.
+
 ## Combinar PDFs
 
 Selecciona dos o mas PDFs en el Explorador, pulsa el boton derecho y elige:

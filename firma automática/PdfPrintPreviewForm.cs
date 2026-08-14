@@ -368,34 +368,22 @@ namespace FirmaAutomatica
         {
             try
             {
-                using (var printDocument =
-                    document.CreatePrintDocument(
-                        PdfPrintMode.ShrinkToMargin))
-                using (var dialog = new PrintDialog())
+                // Cuadro propio: el de Windows no deja elegir paginas sueltas
+                // ni solo pares o impares, ni ensena si la impresora admite
+                // color o doble cara.
+                using (var opciones = new PdfPrintOptionsDialog(
+                    document,
+                    displayName,
+                    currentPageIndex + 1))
                 {
-                    printDocument.DocumentName = displayName;
-                    printDocument.PrinterSettings.MinimumPage = 1;
-                    printDocument.PrinterSettings.MaximumPage =
-                        Math.Max(1, document.PageCount);
-                    printDocument.PrinterSettings.FromPage = 1;
-                    printDocument.PrinterSettings.ToPage =
-                        Math.Max(1, document.PageCount);
-
-                    dialog.Document = printDocument;
-                    dialog.AllowSomePages = true;
-                    dialog.AllowSelection = false;
-                    dialog.UseEXDialog = true;
-
-                    if (dialog.ShowDialog(this) != DialogResult.OK)
+                    if (opciones.ShowDialog(this) != DialogResult.OK)
                     {
                         return;
                     }
-
-                    UseWaitCursor = true;
-                    printDocument.Print();
-                    DialogResult = DialogResult.OK;
-                    Close();
                 }
+
+                DialogResult = DialogResult.OK;
+                Close();
             }
             catch (Exception ex)
             {
