@@ -140,7 +140,7 @@ namespace FirmaAutomatica
             }
 
             active = true;
-            renderer.Cursor = Cursors.Cross;
+            AplicarCursor();
             EnsureToolbar();
             toolbar.Visible = true;
             toolbar.BringToFront();
@@ -759,8 +759,35 @@ namespace FirmaAutomatica
         {
             Tool = tool;
             CancelCurrent();
+            AplicarCursor();
             RefreshToolbar();
             renderer.Focus();
+        }
+
+        /// <summary>
+        /// Cada herramienta lleva su cursor: el subrayador trabaja sobre texto,
+        /// asi que usa el mismo que cualquier seleccion de texto.
+        /// </summary>
+        private void AplicarCursor()
+        {
+            if (!active)
+            {
+                renderer.Cursor = Cursors.Default;
+                return;
+            }
+
+            if (Tool == PdfAnnotationKind.Highlight)
+            {
+                renderer.Cursor = Cursors.IBeam;
+            }
+            else if (Tool == PdfAnnotationKind.Note)
+            {
+                renderer.Cursor = Cursors.Hand;
+            }
+            else
+            {
+                renderer.Cursor = Cursors.Cross;
+            }
         }
 
         private void SelectColor(Color color)

@@ -512,18 +512,42 @@ namespace FirmaAutomatica
                 estilo |= FontStyle.Italic;
             }
 
-            var tamanoPantalla = Math.Max(
+            // Un punto tipografico son 1/72 de pulgada, no un pixel. Sin esta
+            // conversion el texto salia una cuarta parte mas pequeño al
+            // pincharlo, que era el salto de tamano que se notaba al editar.
+            var puntosPorPulgada = 96F;
+            try
+            {
+                using (var lienzo = renderer.CreateGraphics())
+                {
+                    puntosPorPulgada = lienzo.DpiY;
+                }
+            }
+            catch (Exception)
+            {
+                puntosPorPulgada = 96F;
+            }
+
+            var pixeles = Math.Max(
                 6F,
-                puntos * (float)renderer.Zoom);
+                puntos * (float)renderer.Zoom * puntosPorPulgada / 72F);
 
             try
             {
-                editor.Font = new Font(familia, tamanoPantalla, estilo);
+                editor.Font = new Font(
+                    familia,
+                    pixeles,
+                    estilo,
+                    GraphicsUnit.Pixel);
             }
             catch (Exception)
             {
                 // Una familia que Windows no reconozca no debe impedir editar.
-                editor.Font = new Font(FontFamily.GenericSansSerif, tamanoPantalla, estilo);
+                editor.Font = new Font(
+                    FontFamily.GenericSansSerif,
+                    pixeles,
+                    estilo,
+                    GraphicsUnit.Pixel);
             }
         }
 
