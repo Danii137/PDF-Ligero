@@ -193,7 +193,10 @@ namespace FirmaAutomatica
                 return;
             }
 
-            CancelEditing();
+            // Se aplica lo escrito, no se tira: cerrar la herramienta despues de
+            // corregir algo tiene que guardarlo. Para descartar esta Esc, que
+            // cancela sin aplicar, y Ctrl+Z para deshacer despues.
+            CommitEditing();
             active = false;
             hovered = null;
             renderer.Cursor = Cursors.Default;

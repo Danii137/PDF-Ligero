@@ -1517,9 +1517,15 @@ namespace FirmaAutomatica
                 workspace.Annotation != null &&
                 workspace.Annotation.IsActive)
             {
-                if (!ConfirmDiscardPendingMarks(workspace))
+                // Al cerrar se guarda lo que haya, sin preguntar. Antes salia un
+                // aviso que solo dejaba descartar, que era justo lo contrario de
+                // lo que se quiere al terminar de anotar. Si algo no gusta,
+                // Ctrl+Z deshace la revision.
+                if (workspace.Annotation.HasPending)
                 {
-                    return;
+                    AnnotationController_SaveRequested(
+                        workspace.Annotation,
+                        EventArgs.Empty);
                 }
 
                 workspace.Annotation.Deactivate();
@@ -1619,37 +1625,6 @@ namespace FirmaAutomatica
             RefreshToolAvailability();
         }
 
-        /// <summary>
-        /// Pregunta antes de tirar marcas sin guardar. Un trazo perdido es
-        /// trabajo perdido.
-        /// </summary>
-        private bool ConfirmDiscardPendingMarks(PdfWorkspace workspace)
-        {
-            if (workspace == null ||
-                workspace.Annotation == null ||
-                !workspace.Annotation.HasPending)
-            {
-                return true;
-            }
-
-            var answer = MessageBox.Show(
-                this,
-                "Tienes " + workspace.Annotation.Pending.Describe() +
-                " sin guardar.\r\n\r\n" +
-                "Si sales ahora se perderán.",
-                "Anotar",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Warning,
-                MessageBoxDefaultButton.Button2);
-            if (answer != DialogResult.Yes)
-            {
-                return false;
-            }
-
-            workspace.Annotation.ClearPending();
-            return true;
-        }
-
         private void AnnotationController_SaveRequested(
             object sender,
             EventArgs e)
@@ -1712,15 +1687,14 @@ namespace FirmaAutomatica
                 workspace.Annotation.ClearPending();
                 workspace.Annotation.LoadExisting(workspace.ContentPath);
 
+                // Aviso en la barra, no en una ventana: el trabajo ya esta
+                // hecho y no hay nada que decidir, asi que interrumpir sobra.
                 if (resultado != null &&
                     resultado.DigitalSignaturesInvalidated)
                 {
-                    MessageBox.Show(
-                        this,
-                        PdfAnnotationService.DigitalSignatureWarning,
-                        "Anotar",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Information);
+                    documentLabel.Text =
+                        "Marcas guardadas. " +
+                        PdfAnnotationService.DigitalSignatureWarning;
                 }
             }
             catch (Exception ex)
