@@ -368,20 +368,8 @@ namespace FirmaAutomatica
         {
             try
             {
-                // Cuadro propio: el de Windows no deja elegir paginas sueltas
-                // ni solo pares o impares, ni ensena si la impresora admite
-                // color o doble cara.
-                using (var opciones = new PdfPrintOptionsDialog(
-                    document,
-                    displayName,
-                    currentPageIndex + 1))
-                {
-                    if (opciones.ShowDialog(this) != DialogResult.OK)
-                    {
-                        return;
-                    }
-                }
-
+                // Se llega aqui desde el cuadro de opciones, asi que basta con
+                // cerrar: alli esta el boton de imprimir con todos los ajustes.
                 DialogResult = DialogResult.OK;
                 Close();
             }

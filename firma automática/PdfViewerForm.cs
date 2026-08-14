@@ -3195,12 +3195,15 @@ namespace FirmaAutomatica
             CancelRectangleZoom(workspace);
             try
             {
-                using (var preview = new PdfPrintPreviewForm(
+                // Directo a las opciones: imprimir es lo que se viene a hacer
+                // con Ctrl+P. La vista previa sigue a un clic, desde ese mismo
+                // cuadro, para quien quiera repasar antes de gastar papel.
+                using (var opciones = new PdfPrintOptionsDialog(
                     workspace.Document,
                     workspace.DisplayName,
-                    Math.Max(0, workspace.DisplayedPageIndex)))
+                    Math.Max(0, workspace.DisplayedPageIndex) + 1))
                 {
-                    preview.ShowDialog(this);
+                    opciones.ShowDialog(this);
                 }
             }
             catch (Exception ex)

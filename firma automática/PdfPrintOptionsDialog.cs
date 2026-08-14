@@ -207,6 +207,21 @@ namespace FirmaAutomatica
                 Font = new Font("Segoe UI", 8.5f, FontStyle.Regular)
             };
 
+            var previewButton = new Button
+            {
+                Left = 18,
+                Top = 428,
+                Width = 132,
+                Height = 32,
+                Text = "Vista previa",
+                FlatStyle = FlatStyle.Flat,
+                BackColor = SurfaceColor,
+                ForeColor = TitleColor,
+                AccessibleName = "Ver el documento antes de imprimir"
+            };
+            previewButton.FlatAppearance.BorderColor = DividerColor;
+            previewButton.Click += PreviewButton_Click;
+
             var cancelButton = new Button
             {
                 Left = 330,
@@ -257,6 +272,7 @@ namespace FirmaAutomatica
             Controls.Add(rangeInput);
             Controls.Add(summaryLabel);
             Controls.Add(noteLabel);
+            Controls.Add(previewButton);
             Controls.Add(cancelButton);
             Controls.Add(printButton);
 
@@ -469,6 +485,24 @@ namespace FirmaAutomatica
                 document.PageCount);
             printButton.Enabled = paginas.Count > 0 &&
                 printerSelector.Items.Count > 0;
+        }
+
+        private void PreviewButton_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                using (var previa = new PdfPrintPreviewForm(
+                    document,
+                    displayName,
+                    Math.Max(0, currentPageNumber - 1)))
+                {
+                    previa.ShowDialog(this);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("No se pudo abrir la vista previa: " + ex);
+            }
         }
 
         private void PrintButton_Click(object sender, EventArgs e)
