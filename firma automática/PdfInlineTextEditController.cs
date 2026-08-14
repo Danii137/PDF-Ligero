@@ -73,6 +73,10 @@ namespace FirmaAutomatica
         private const int WmMouseMove = 0x0200;
         private const int WmKeyDown = 0x0100;
 
+        // El visor repone su propio cursor en cada WM_SETCURSOR; sin
+        // interceptarlo, el de escribir texto se pierde al mover el raton.
+        private const int WmSetCursor = 0x0020;
+
         private static readonly Color OutlineColor = Color.FromArgb(150, 150, 146);
         private static readonly Color HoverColor = Color.FromArgb(238, 91, 61);
         private static readonly Color SurfaceColor = Color.FromArgb(250, 249, 247);
@@ -211,6 +215,14 @@ namespace FirmaAutomatica
                 return true;
             }
 
+            if (message.Msg == WmSetCursor &&
+                renderer.IsHandleCreated &&
+                message.WParam == renderer.Handle)
+            {
+                Cursor.Current = hovered == null ? Cursors.Arrow : Cursors.IBeam;
+                return true;
+            }
+
             if (!renderer.IsHandleCreated ||
                 message.HWnd != renderer.Handle)
             {
@@ -270,7 +282,8 @@ namespace FirmaAutomatica
                 return false;
             }
 
-            BeginEditing(bloque);
+            var punto = renderer.PointToPdf(location);
+            BeginEditing(bloque, punto.Location.X);
             return true;
         }
 
@@ -317,7 +330,7 @@ namespace FirmaAutomatica
             return bloques;
         }
 
-        private void BeginEditing(PdfTextBlock bloque)
+        private void BeginEditing(PdfTextBlock bloque, float xDondeSePincho)
         {
             CancelEditing();
             editing = bloque;
@@ -342,7 +355,15 @@ namespace FirmaAutomatica
             editor.Visible = true;
             editor.BringToFront();
             editor.Focus();
-            editor.SelectAll();
+
+            // El cursor se coloca donde se pincho, como en cualquier editor de
+            // texto. Seleccionarlo todo haria que la primera tecla borrase la
+            // linea entera, que no es lo que se espera al ir a corregir algo.
+            var indice = bloque.NearestCharacterIndex(xDondeSePincho);
+            editor.SelectionStart = Math.Max(
+                0,
+                Math.Min(editor.TextLength, indice));
+            editor.SelectionLength = 0;
 
             EnsureFormatBar();
             fontSelector.Text = string.IsNullOrEmpty(originalFont)
@@ -477,9 +498,16 @@ namespace FirmaAutomatica
         }
 
         /// <summary>
-        /// Da al cuadro de texto una letra parecida a la del documento, para que
-        /// escribir encima no desoriente. Los puntos del PDF se pasan a pixeles
-        /// segun el zoom del visor.
+        /// Da al cuadro de texto exactamente la misma letra que tiene el
+        /// documento en pantalla, para que al pinchar una linea no cambie nada:
+        /// solo aparece el cursor de escritura.
+        ///
+        /// No se calcula desde los puntos del PDF, que obliga a acertar con la
+        /// conversion a pixeles y con las metricas de cada fuente. Se parte de
+        /// lo que ya se sabe medido: el alto en pixeles que ocupa esa linea en
+        /// pantalla, que es justo la distancia entre su ascendente y su
+        /// descendente. Con las metricas de la familia se despeja el tamano que
+        /// reproduce ese alto.
         /// </summary>
         private void ApplyEditorFont()
         {
@@ -512,25 +540,7 @@ namespace FirmaAutomatica
                 estilo |= FontStyle.Italic;
             }
 
-            // Un punto tipografico son 1/72 de pulgada, no un pixel. Sin esta
-            // conversion el texto salia una cuarta parte mas pequeño al
-            // pincharlo, que era el salto de tamano que se notaba al editar.
-            var puntosPorPulgada = 96F;
-            try
-            {
-                using (var lienzo = renderer.CreateGraphics())
-                {
-                    puntosPorPulgada = lienzo.DpiY;
-                }
-            }
-            catch (Exception)
-            {
-                puntosPorPulgada = 96F;
-            }
-
-            var pixeles = Math.Max(
-                6F,
-                puntos * (float)renderer.Zoom * puntosPorPulgada / 72F);
+            var pixeles = CalcularTamanoEnPixeles(familia, estilo, puntos);
 
             try
             {
@@ -549,6 +559,70 @@ namespace FirmaAutomatica
                     estilo,
                     GraphicsUnit.Pixel);
             }
+        }
+
+        /// <summary>
+        /// Tamano en pixeles que hace que el texto del cuadro ocupe lo mismo que
+        /// el de la pagina.
+        ///
+        /// El alto del recuadro de la linea, llevado a pixeles de pantalla, es
+        /// la distancia entre la ascendente y la descendente. En las metricas de
+        /// una familia esa distancia vale (ascendente + descendente) / em, asi
+        /// que el tamano buscado es el alto dividido por esa proporcion.
+        /// </summary>
+        private float CalcularTamanoEnPixeles(
+            string familia,
+            FontStyle estilo,
+            float puntosPedidos)
+        {
+            if (editing == null)
+            {
+                return Math.Max(6F, puntosPedidos);
+            }
+
+            var caja = renderer.BoundsFromPdf(
+                new PdfiumViewer.PdfRectangle(
+                    editing.PageNumber - 1,
+                    editing.Bounds));
+            var altoEnPantalla = (float)caja.Height;
+            if (altoEnPantalla < 2F)
+            {
+                return Math.Max(6F, puntosPedidos);
+            }
+
+            // Si se ha cambiado el tamano a mano, se escala en la misma
+            // proporcion respecto al que tenia el original.
+            if (originalSize > 0.5F && puntosPedidos > 0.5F)
+            {
+                altoEnPantalla *= puntosPedidos / originalSize;
+            }
+
+            var proporcion = 1.2F;
+            try
+            {
+                var family = new FontFamily(familia);
+                var estiloMetricas = family.IsStyleAvailable(estilo)
+                    ? estilo
+                    : FontStyle.Regular;
+                var em = (float)family.GetEmHeight(estiloMetricas);
+                if (em > 0F)
+                {
+                    proporcion =
+                        (family.GetCellAscent(estiloMetricas) +
+                         family.GetCellDescent(estiloMetricas)) / em;
+                }
+            }
+            catch (Exception)
+            {
+                proporcion = 1.2F;
+            }
+
+            if (proporcion < 0.5F || proporcion > 2.5F)
+            {
+                proporcion = 1.2F;
+            }
+
+            return Math.Max(6F, altoEnPantalla / proporcion);
         }
 
         private void PositionEditor()

@@ -26,6 +26,11 @@ namespace FirmaAutomatica
         private const int WmMouseMove = 0x0200;
         private const int WmLButtonUp = 0x0202;
 
+        // El visor decide el cursor por su cuenta en cada WM_SETCURSOR: pone la
+        // mano para desplazar la pagina. Si no se intercepta ese mensaje, el
+        // cursor de la herramienta se pierde en cuanto se mueve el raton.
+        private const int WmSetCursor = 0x0020;
+
         // Distancia minima entre puntos guardados. Sin ella un trazo lento
         // acumula miles de puntos casi iguales y el PDF engorda sin motivo.
         private const float MinimumPointDistance = 1.2F;
@@ -218,6 +223,16 @@ namespace FirmaAutomatica
                 dragging)
             {
                 CancelCurrent();
+                return true;
+            }
+
+            // Se impone el cursor de la herramienta antes de que el visor
+            // ponga el suyo.
+            if (message.Msg == WmSetCursor &&
+                renderer.IsHandleCreated &&
+                message.WParam == renderer.Handle)
+            {
+                Cursor.Current = CursorDeLaHerramienta();
                 return true;
             }
 
@@ -770,24 +785,25 @@ namespace FirmaAutomatica
         /// </summary>
         private void AplicarCursor()
         {
+            renderer.Cursor = CursorDeLaHerramienta();
+        }
+
+        private Cursor CursorDeLaHerramienta()
+        {
             if (!active)
             {
-                renderer.Cursor = Cursors.Default;
-                return;
+                return Cursors.Default;
             }
-
             if (Tool == PdfAnnotationKind.Highlight)
             {
-                renderer.Cursor = Cursors.IBeam;
+                return Cursors.IBeam;
             }
-            else if (Tool == PdfAnnotationKind.Note)
+            if (Tool == PdfAnnotationKind.Note)
             {
-                renderer.Cursor = Cursors.Hand;
+                return Cursors.Hand;
             }
-            else
-            {
-                renderer.Cursor = Cursors.Cross;
-            }
+
+            return Cursors.Cross;
         }
 
         private void SelectColor(Color color)
