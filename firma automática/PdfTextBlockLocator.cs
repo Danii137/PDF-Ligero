@@ -143,6 +143,11 @@ namespace FirmaAutomatica
 
         private const int InvisibleRenderMode = 3;
 
+        // Tope de altura de un renglon, en puntos. Una pulgada es de sobra para
+        // el titulo mas grande, y descarta las metricas disparatadas que a veces
+        // declara la capa invisible del OCR.
+        private const float MaximumLineHeightPoints = 72F;
+
         /// <summary>
         /// Lineas de texto de la pagina, de arriba abajo. Nunca lanza: si la
         /// pagina no se puede analizar se devuelve una lista vacia y la
@@ -238,13 +243,44 @@ namespace FirmaAutomatica
                 fragmento.Izquierda = Math.Min(inicio[Vector.I1], fin[Vector.I1]);
                 fragmento.Derecha = Math.Max(inicio[Vector.I1], fin[Vector.I1]);
                 fragmento.Base = inicio[Vector.I2];
-                fragmento.Arriba = Math.Max(
-                    ascendente[Vector.I2],
-                    descendente[Vector.I2]);
-                fragmento.Abajo = Math.Min(
-                    ascendente[Vector.I2],
-                    descendente[Vector.I2]);
                 fragmento.Tamano = PdfTextStyleProbe.MeasureFontSize(renderInfo);
+
+                // El alto de la linea sale de las lineas de ascendente y
+                // descendente, pero la capa invisible que deja el OCR declara a
+                // veces metricas desmesuradas: cajas de varios centimetros para
+                // una letra. Creerselas producia recuadros tan altos como la
+                // pagina, y el subrayador pintaba franjas verticales en vez de
+                // seguir al renglon.
+                //
+                // Cuando el alto declarado no guarda relacion con el cuerpo de
+                // letra medido, se reconstruye alrededor de la linea base con
+                // las proporciones normales de una tipografia.
+                var arriba = Math.Max(
+                    ascendente[Vector.I2],
+                    descendente[Vector.I2]);
+                var abajo = Math.Min(
+                    ascendente[Vector.I2],
+                    descendente[Vector.I2]);
+                // El cuerpo medido sale de esas mismas metricas, asi que puede
+                // venir igual de inflado: se acota antes de usarlo. Ningun
+                // renglon de un documento pasa de una pulgada de alto.
+                var cuerpo = fragmento.Tamano;
+                if (cuerpo <= 0.5F || cuerpo > MaximumLineHeightPoints)
+                {
+                    cuerpo = 11F;
+                }
+
+                if (arriba - abajo > cuerpo * 3F ||
+                    arriba - abajo < cuerpo * 0.3F ||
+                    arriba - abajo > MaximumLineHeightPoints)
+                {
+                    arriba = fragmento.Base + (cuerpo * 0.78F);
+                    abajo = fragmento.Base - (cuerpo * 0.22F);
+                    fragmento.Tamano = cuerpo;
+                }
+
+                fragmento.Arriba = arriba;
+                fragmento.Abajo = abajo;
                 fragmento.AnchoEspacio = renderInfo.GetSingleSpaceWidth();
                 fragmento.FuenteBruta = bruto;
                 fragmento.Fuente = PdfTextStyleProbe.CleanFamilyName(limpio);
