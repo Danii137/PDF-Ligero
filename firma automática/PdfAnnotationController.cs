@@ -193,6 +193,20 @@ namespace FirmaAutomatica
             Refresh();
         }
 
+        /// <summary>
+        /// Vacia lo pendiente sin avisar a nadie ni repintar.
+        ///
+        /// Se usa nada mas guardar: si el refresco posterior falla, las marcas
+        /// ya escritas en el PDF seguian pintadas encima como si estuvieran
+        /// pendientes, y parecia que no se habia guardado nada.
+        /// </summary>
+        public void ClearPendingSilently()
+        {
+            pending.Clear();
+            dragging = false;
+            current = null;
+        }
+
         /// <summary>Vacia lo pendiente, tras guardarlo o al descartarlo.</summary>
         public void ClearPending()
         {

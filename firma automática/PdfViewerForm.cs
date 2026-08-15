@@ -1729,10 +1729,15 @@ namespace FirmaAutomatica
                 // A partir de aqui las marcas YA estan guardadas. Refrescar
                 // la vista es un extra, y un fallo suyo no puede presentarse
                 // como que no se pudo guardar.
+                // Lo pendiente se vacia ANTES de repintar y sin avisar a
+                // nadie: si el refresco falla, las marcas ya escritas seguian
+                // dibujadas como pendientes y parecia que no se habia guardado.
+                paso = "vaciar lo pendiente";
+                workspace.Annotation.ClearPendingSilently();
+
                 paso = "releer las marcas";
                 try
                 {
-                    workspace.Annotation.ClearPending();
                     workspace.Annotation.LoadExisting(workspace.ContentPath);
                 }
                 catch (Exception refresco)
@@ -1741,6 +1746,9 @@ namespace FirmaAutomatica
                         "Las marcas se guardaron, pero no se pudo refrescar " +
                         "la vista: " + refresco);
                 }
+
+                documentLabel.Text =
+                    descripcion + " guardado. El original no se ha modificado.";
 
                 // Aviso en la barra, no en una ventana: el trabajo ya esta
                 // hecho y no hay nada que decidir, asi que interrumpir sobra.
