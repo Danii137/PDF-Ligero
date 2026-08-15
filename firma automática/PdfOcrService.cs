@@ -2045,7 +2045,18 @@ namespace FirmaAutomatica
                 " -l " + Quote(language) +
                 " --dpi " +
                 dpi.ToString(CultureInfo.InvariantCulture) +
-                " --psm 3 tsv";
+                // psm 4: una sola columna de texto con tamanos variables.
+                //
+                // Antes se usaba psm 3, que ademas intenta detectar columnas. En
+                // documentos a una columna con titulos y parrafos —memorias,
+                // contratos, informes— se equivocaba y partia la pagina en
+                // columnas inventadas, dejando el texto troceado en vertical en
+                // vez de seguido y bien estructurado.
+                //
+                // psm 4 respeta los cambios de cuerpo entre titulo y parrafo,
+                // que es lo que distingue a estos documentos, sin buscar
+                // columnas donde no las hay.
+                " --psm 4 tsv";
             RunProcess(
                 tesseractPath,
                 arguments,
