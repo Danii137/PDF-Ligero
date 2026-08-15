@@ -286,6 +286,16 @@ namespace FirmaAutomatica
                 return false;
             }
 
+            if (bloque.FromOcr)
+            {
+                // Cambiar la capa del OCR no cambiaria la pagina: lo que se ve
+                // es la imagen escaneada, y el texto va invisible debajo.
+                Report(
+                    "Esta línea viene del OCR: se puede subrayar y copiar, " +
+                    "pero no reescribir, porque lo que se ve es la imagen.");
+                return true;
+            }
+
             var punto = renderer.PointToPdf(location);
             BeginEditing(bloque, punto.Location.X);
             return true;

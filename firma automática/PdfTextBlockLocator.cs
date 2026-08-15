@@ -49,6 +49,13 @@ namespace FirmaAutomatica
         public PdfTextStyle Style { get; private set; }
 
         /// <summary>
+        /// La linea es la capa de texto invisible que deja el OCR sobre una
+        /// imagen escaneada. Se puede seleccionar y subrayar, pero cambiar su
+        /// texto no cambiaria lo que se ve: lo visible es la imagen.
+        /// </summary>
+        public bool FromOcr { get; internal set; }
+
+        /// <summary>
         /// Rectangulo de cada caracter de la linea, en el orden en que se leen.
         /// Lo usa el subrayador para marcar exactamente el texto que se
         /// arrastra, en vez de un recuadro suelto.
@@ -167,6 +174,7 @@ namespace FirmaAutomatica
         private sealed class Fragmento
         {
             public readonly List<RectangleF> Caracteres = new List<RectangleF>();
+            public bool Invisible;
             public string Texto;
             public float Izquierda;
             public float Derecha;
@@ -202,8 +210,7 @@ namespace FirmaAutomatica
 
             public void RenderText(TextRenderInfo renderInfo)
             {
-                if (renderInfo == null ||
-                    renderInfo.GetTextRenderMode() == InvisibleRenderMode)
+                if (renderInfo == null)
                 {
                     return;
                 }
@@ -247,6 +254,11 @@ namespace FirmaAutomatica
                 fragmento.Subconjunto = PdfTextStyleProbe.IsSubset(bruto);
                 fragmento.Color = PdfTextStyleProbe.ToColor(
                     renderInfo.GetFillColor());
+                // El OCR deja el texto en modo invisible, debajo de la imagen
+                // escaneada. Antes se descartaba y por eso, tras pasar el OCR,
+                // la herramienta no encontraba nada que subrayar ni editar.
+                fragmento.Invisible =
+                    renderInfo.GetTextRenderMode() == InvisibleRenderMode;
                 RecogerCaracteres(renderInfo, fragmento);
                 fragmentos.Add(fragmento);
             }
@@ -424,6 +436,7 @@ namespace FirmaAutomatica
                         arriba - abajo),
                     dominante.Base,
                     estilo);
+                bloque.FromOcr = linea.All(f => f.Invisible);
                 foreach (var caja in cajas)
                 {
                     bloque.CharacterBounds.Add(caja);

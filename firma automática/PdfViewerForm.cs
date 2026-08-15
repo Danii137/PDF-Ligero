@@ -1754,15 +1754,14 @@ namespace FirmaAutomatica
             }
             catch (Exception ex)
             {
+                // Sin ventanas al anotar: el aviso va a la barra y el detalle
+                // al registro. Las marcas siguen en pantalla, sin perderse.
                 AppLog.Write(
                     "No se pudieron guardar las marcas (paso: " + paso + "): " +
                     ex);
-                ShowPdfProblem(
-                    "Anotar",
-                    "No se pudieron guardar las marcas.",
-                    "El PDF original no se ha modificado.",
-                    ex,
-                    sourcePath);
+                documentLabel.Text =
+                    "No se pudieron guardar las marcas. El PDF original no se " +
+                    "ha modificado y las marcas siguen aquí.";
             }
             finally
             {
