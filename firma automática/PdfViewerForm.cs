@@ -96,6 +96,7 @@ namespace FirmaAutomatica
         private readonly ToolStripMenuItem ocrMenuItem;
         private readonly ToolStripMenuItem organizePagesMenuItem;
         private readonly ToolStripMenuItem extractPagesMenuItem;
+        private readonly ToolStripMenuItem stampMenuItem;
         private readonly ToolStripMenuItem shrinkMenuItem;
         private readonly ToolStripMenuItem editBookmarksMenuItem;
         private readonly ToolStripMenuItem compareMenuItem;
@@ -700,6 +701,10 @@ namespace FirmaAutomatica
                 moreMenu,
                 "Extraer o dividir páginas…",
                 delegate { ExtractOrSplitPages(); });
+            stampMenuItem = AddMenuItem(
+                moreMenu,
+                "Marca de agua y numeración…",
+                delegate { StampActiveDocument(); });
             shrinkMenuItem = AddMenuItem(
                 moreMenu,
                 "Reducir el tamaño…",
@@ -9253,6 +9258,10 @@ namespace FirmaAutomatica
                 hasLoadedDocument &&
                 !comparisonActive &&
                 !IsPageStructureOperationInProgress;
+            stampMenuItem.Enabled =
+                hasLoadedDocument &&
+                !comparisonActive &&
+                !IsPageStructureOperationInProgress;
             shrinkMenuItem.Enabled =
                 hasLoadedDocument &&
                 !comparisonActive &&
@@ -9562,6 +9571,153 @@ namespace FirmaAutomatica
                     System.Globalization.CultureInfo.CurrentCulture) +
                 " archivos junto al original, que no se ha modificado.";
             OfferToShowInExplorer(resultado.OutputPaths);
+        }
+
+        /// <summary>
+        /// Marca de agua y numeracion de hojas, en una copia aparte.
+        /// </summary>
+        private void StampActiveDocument()
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null ||
+                workspace.Document == null ||
+                workspace.Document.PageCount < 1 ||
+                string.IsNullOrEmpty(workspace.ContentPath))
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            if (IsPageStructureOperationInProgress)
+            {
+                documentLabel.Text =
+                    "Ya hay otra edición en curso. Espera un momento…";
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            CancelRectangleZoom(workspace);
+            var origen = workspace.ContentPath;
+            PdfStampSettings ajustes;
+            using (var opciones = new PdfStampForm(
+                workspace.Document.PageCount,
+                Path.GetFileNameWithoutExtension(origen)))
+            {
+                if (opciones.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                ajustes = opciones.Settings;
+            }
+
+            var propuesta = PdfStampService.SuggestOutputPath(origen);
+            string destino;
+            using (var guardar = new SaveFileDialog())
+            {
+                guardar.Title = "Guardar la copia marcada";
+                guardar.Filter = "Documentos PDF (*.pdf)|*.pdf";
+                guardar.DefaultExt = "pdf";
+                guardar.AddExtension = true;
+                guardar.OverwritePrompt = true;
+                guardar.InitialDirectory = Path.GetDirectoryName(propuesta);
+                guardar.FileName = Path.GetFileName(propuesta);
+                if (guardar.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                destino = guardar.FileName;
+            }
+
+            if (string.Equals(
+                    Path.GetFullPath(destino),
+                    Path.GetFullPath(origen),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show(
+                    this,
+                    "Elige otro nombre: ese es el PDF que está abierto.",
+                    "Marca de agua y numeración",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            try
+            {
+                if (File.Exists(destino))
+                {
+                    File.Delete(destino);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write(
+                    "No se pudo reemplazar el archivo elegido: " + ex);
+                ShowPdfProblem(
+                    "Marca de agua y numeración",
+                    "No se pudo reemplazar ese archivo.",
+                    "Puede que esté abierto en otro programa.",
+                    ex,
+                    destino);
+                return;
+            }
+
+            PdfStampResult resultado = null;
+            Exception fallo = null;
+            using (var progreso = new PdfBackgroundOperationForm(
+                "Marca de agua y numeración",
+                "Marcando las hojas…",
+                delegate
+                {
+                    try
+                    {
+                        resultado = PdfStampService.Stamp(
+                            origen,
+                            destino,
+                            ajustes,
+                            null,
+                            CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        fallo = ex;
+                    }
+                }))
+            {
+                progreso.Run(this);
+            }
+
+            if (fallo != null)
+            {
+                AppLog.Write("No se pudo marcar el PDF: " + fallo);
+                ShowPdfProblem(
+                    "Marca de agua y numeración",
+                    "No se pudieron marcar las hojas.",
+                    "El PDF abierto no se ha modificado.",
+                    fallo,
+                    origen);
+                return;
+            }
+
+            if (resultado == null)
+            {
+                return;
+            }
+
+            documentLabel.Text =
+                "Creado " + Path.GetFileName(resultado.OutputPath) + " con " +
+                resultado.PageCount.ToString(
+                    System.Globalization.CultureInfo.CurrentCulture) +
+                " hojas. El original no se ha modificado.";
+            if (resultado.DigitalSignaturesInvalidated)
+            {
+                documentLabel.Text +=
+                    " " + PdfStampService.DigitalSignatureInvalidationWarning;
+            }
+
+            OpenPdfTabs(new[] { resultado.OutputPath });
         }
 
         /// <summary>
