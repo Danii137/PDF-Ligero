@@ -57,6 +57,8 @@ namespace FirmaAutomatica
         private readonly Panel searchPanel;
         private readonly Label searchCaptionLabel;
         private readonly TextBox searchTextBox;
+        private readonly Panel searchResultsPanel;
+        private readonly ListBox searchResultsList;
         private readonly Label searchStatusLabel;
         private readonly Button searchPreviousButton;
         private readonly Button searchNextButton;
@@ -140,6 +142,7 @@ namespace FirmaAutomatica
         private bool activatingWorkspace;
         private bool closingAll;
         private bool suppressSearchTextChanged;
+        private bool suppressSearchResultSelection;
         private bool pageInsertInProgress;
         private bool pageOrganizationInProgress;
         private bool ocrInProgress;
@@ -418,6 +421,45 @@ namespace FirmaAutomatica
             searchPanel.Controls.Add(searchCloseButton);
             searchPanel.Resize += SearchPanel_Resize;
 
+            // Lista de coincidencias. Ir una por una con las flechas sirve
+            // para un par de resultados; con treinta hace falta verlos todos
+            // y saltar al que interesa.
+            searchResultsPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 148,
+                BackColor = HeaderBackgroundColor,
+                Visible = false
+            };
+            searchResultsPanel.Controls.Add(new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 1,
+                BackColor = DividerColor
+            });
+
+            searchResultsList = new ListBox
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.None,
+                BackColor = HeaderBackgroundColor,
+                ForeColor = TitleColor,
+                Font = CreateUiFont(9f, FontStyle.Regular),
+                IntegralHeight = false,
+                AccessibleName = "Coincidencias encontradas"
+            };
+            searchResultsList.SelectedIndexChanged +=
+                SearchResultsList_SelectedIndexChanged;
+            searchResultsList.DoubleClick += delegate
+            {
+                var workspace = GetLoadedActiveWorkspace();
+                if (workspace != null)
+                {
+                    workspace.Viewer.Renderer.Focus();
+                }
+            };
+            searchResultsPanel.Controls.Add(searchResultsList);
+
             contentPanel = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -612,6 +654,7 @@ namespace FirmaAutomatica
             contentPanel.Controls.Add(toolRail);
 
             Controls.Add(contentPanel);
+            Controls.Add(searchResultsPanel);
             Controls.Add(searchPanel);
             Controls.Add(headerPanel);
 
@@ -809,6 +852,11 @@ namespace FirmaAutomatica
             contentEditSubmenu.DropDownItems.Add(moreEditTextMenuItem);
             contentEditSubmenu.DropDownItems.Add(moreFillFormMenuItem);
             moreMenu.Items.Add(contentEditSubmenu);
+            moreMenu.Items.Add(new ToolStripSeparator());
+            AddMenuItem(
+                moreMenu,
+                "Acerca de PDF Ligero…",
+                delegate { ShowAboutDialog(); });
             moreMenu.Opening += delegate { RefreshMenuAvailability(); };
 
             pageSyncTimer = new Timer
@@ -5620,6 +5668,7 @@ namespace FirmaAutomatica
 
             searchStatusLabel.Text = "Escribe y pulsa Enter";
             searchPanel.Visible = false;
+            searchResultsPanel.Visible = false;
             SetSearchToolActive(false);
             if (workspace != null)
             {
@@ -5663,11 +5712,13 @@ namespace FirmaAutomatica
                 if (workspace.SearchMatches.Items.Count == 0)
                 {
                     searchStatusLabel.Text = "Sin coincidencias";
+                    FillSearchResultsList(workspace);
                     return;
                 }
 
                 workspace.CurrentSearchIndex =
                     FindFirstSearchMatchFromCurrentPage(workspace);
+                FillSearchResultsList(workspace);
                 ApplySearchHighlights(workspace);
                 ScrollCurrentSearchMatchIntoView(workspace);
                 UpdateSearchStatus(workspace);
@@ -5715,6 +5766,166 @@ namespace FirmaAutomatica
                 }
             }
 
+            ApplySearchHighlights(workspace);
+            ScrollCurrentSearchMatchIntoView(workspace);
+            UpdateSearchStatus(workspace);
+            SyncSearchResultsSelection(workspace);
+        }
+
+        /// <summary>
+        /// Rellena la lista de coincidencias con la pagina y un trozo del
+        /// texto de alrededor: sin el contexto, treinta resultados son
+        /// treinta numeros de pagina y hay que entrar en todos.
+        /// </summary>
+        private void FillSearchResultsList(PdfWorkspace workspace)
+        {
+            suppressSearchResultSelection = true;
+            try
+            {
+                searchResultsList.BeginUpdate();
+                searchResultsList.Items.Clear();
+
+                if (workspace == null ||
+                    workspace.SearchMatches == null ||
+                    workspace.SearchMatches.Items.Count == 0)
+                {
+                    searchResultsPanel.Visible = false;
+                    return;
+                }
+
+                var textoPorPagina = new Dictionary<int, string>();
+                foreach (var coincidencia in workspace.SearchMatches.Items)
+                {
+                    searchResultsList.Items.Add(
+                        DescribeSearchMatch(
+                            workspace,
+                            coincidencia,
+                            textoPorPagina));
+                }
+
+                searchResultsPanel.Visible = true;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write(
+                    "No se pudo montar la lista de coincidencias: " + ex);
+                searchResultsPanel.Visible = false;
+            }
+            finally
+            {
+                searchResultsList.EndUpdate();
+                suppressSearchResultSelection = false;
+                SyncSearchResultsSelection(workspace);
+                PerformLayout();
+            }
+        }
+
+        private string DescribeSearchMatch(
+            PdfWorkspace workspace,
+            PdfMatch coincidencia,
+            Dictionary<int, string> textoPorPagina)
+        {
+            var pagina = coincidencia.Page + 1;
+            var etiqueta = "p. " +
+                pagina.ToString(
+                    System.Globalization.CultureInfo.CurrentCulture) +
+                "   ";
+
+            string contexto;
+            try
+            {
+                string textoPagina;
+                if (!textoPorPagina.TryGetValue(
+                        coincidencia.Page,
+                        out textoPagina))
+                {
+                    textoPagina = workspace.Document.GetPdfText(
+                        coincidencia.Page) ?? string.Empty;
+                    textoPorPagina[coincidencia.Page] = textoPagina;
+                }
+
+                var inicio = Math.Max(
+                    0,
+                    coincidencia.TextSpan.Offset - 38);
+                var fin = Math.Min(
+                    textoPagina.Length,
+                    coincidencia.TextSpan.Offset +
+                        coincidencia.TextSpan.Length + 38);
+                contexto = fin > inicio
+                    ? textoPagina.Substring(inicio, fin - inicio)
+                    : coincidencia.Text;
+                if (inicio > 0)
+                {
+                    contexto = "…" + contexto;
+                }
+
+                if (fin < textoPagina.Length)
+                {
+                    contexto += "…";
+                }
+            }
+            catch (Exception)
+            {
+                contexto = coincidencia.Text ?? string.Empty;
+            }
+
+            // Los saltos de linea del PDF romperian el renglon de la lista.
+            contexto = contexto
+                .Replace("\r", " ")
+                .Replace("\n", " ")
+                .Replace("\t", " ");
+            while (contexto.IndexOf("  ", StringComparison.Ordinal) >= 0)
+            {
+                contexto = contexto.Replace("  ", " ");
+            }
+
+            return etiqueta + contexto.Trim();
+        }
+
+        private void SyncSearchResultsSelection(PdfWorkspace workspace)
+        {
+            if (workspace == null ||
+                workspace.CurrentSearchIndex < 0 ||
+                workspace.CurrentSearchIndex >= searchResultsList.Items.Count)
+            {
+                return;
+            }
+
+            suppressSearchResultSelection = true;
+            try
+            {
+                searchResultsList.SelectedIndex =
+                    workspace.CurrentSearchIndex;
+            }
+            catch (Exception)
+            {
+            }
+            finally
+            {
+                suppressSearchResultSelection = false;
+            }
+        }
+
+        private void SearchResultsList_SelectedIndexChanged(
+            object sender,
+            EventArgs e)
+        {
+            if (suppressSearchResultSelection)
+            {
+                return;
+            }
+
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null ||
+                workspace.SearchMatches == null ||
+                searchResultsList.SelectedIndex < 0 ||
+                searchResultsList.SelectedIndex >=
+                    workspace.SearchMatches.Items.Count)
+            {
+                return;
+            }
+
+            workspace.CurrentSearchIndex = searchResultsList.SelectedIndex;
             ApplySearchHighlights(workspace);
             ScrollCurrentSearchMatchIntoView(workspace);
             UpdateSearchStatus(workspace);
@@ -5902,6 +6113,17 @@ namespace FirmaAutomatica
             {
                 searchPreviousButton.Enabled = false;
                 searchNextButton.Enabled = false;
+                suppressSearchResultSelection = true;
+                try
+                {
+                    searchResultsList.Items.Clear();
+                }
+                finally
+                {
+                    suppressSearchResultSelection = false;
+                }
+
+                searchResultsPanel.Visible = false;
             }
         }
 
@@ -9851,6 +10073,18 @@ namespace FirmaAutomatica
                         null,
                         CancellationToken.None);
                 });
+        }
+
+        /// <summary>
+        /// Acerca de. La AGPL v3 pide que el aviso legal y la oferta del
+        /// codigo fuente se puedan ver desde el propio programa.
+        /// </summary>
+        private void ShowAboutDialog()
+        {
+            using (var ventana = new PdfAboutForm())
+            {
+                ventana.ShowDialog(this);
+            }
         }
 
         /// <summary>Saca las paginas como imagenes sueltas.</summary>

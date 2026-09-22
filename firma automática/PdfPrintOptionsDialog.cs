@@ -441,6 +441,109 @@ namespace FirmaAutomatica
             }
         }
 
+        /// <summary>
+        /// La impresora escribe a un archivo en vez de a papel. Se reconoce
+        /// por el puerto: los controladores de PDF y XPS usan PORTPROMPT,
+        /// FILE: o un puerto con nombre de archivo.
+        /// </summary>
+        private static bool EsImpresoraAArchivo(PrinterSettings settings)
+        {
+            try
+            {
+                var nombre = settings.PrinterName ?? string.Empty;
+                if (nombre.IndexOf(
+                        "Print to PDF",
+                        StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    nombre.IndexOf(
+                        "XPS Document Writer",
+                        StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+
+                return settings.PrintToFile;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Pregunta donde dejar el archivo. Devuelve null si se cancela.
+        /// </summary>
+        private string PedirArchivoDeSalida(PrinterSettings settings)
+        {
+            var esPdf = (settings.PrinterName ?? string.Empty).IndexOf(
+                "PDF",
+                StringComparison.OrdinalIgnoreCase) >= 0;
+            using (var guardar = new SaveFileDialog())
+            {
+                guardar.Title = "Guardar la impresión como archivo";
+                guardar.Filter = esPdf
+                    ? "Documentos PDF (*.pdf)|*.pdf"
+                    : "Documentos XPS (*.xps)|*.xps|Todos los archivos (*.*)|*.*";
+                guardar.DefaultExt = esPdf ? "pdf" : "xps";
+                guardar.AddExtension = true;
+                guardar.OverwritePrompt = true;
+                guardar.FileName = LimpiarNombre(displayName) +
+                    (esPdf ? ".pdf" : ".xps");
+                return guardar.ShowDialog(this) == DialogResult.OK
+                    ? guardar.FileName
+                    : null;
+            }
+        }
+
+        private static string LimpiarNombre(string nombre)
+        {
+            var limpio = System.IO.Path.GetFileNameWithoutExtension(
+                nombre ?? string.Empty);
+            foreach (var invalido in
+                System.IO.Path.GetInvalidFileNameChars())
+            {
+                limpio = limpio.Replace(invalido, '_');
+            }
+
+            limpio = limpio.Trim();
+            return limpio.Length == 0 ? "impresion" : limpio;
+        }
+
+        /// <summary>
+        /// El trabajo se ha cancelado, no ha fallado. Windows lo cuenta como
+        /// un Win32Exception con el codigo de trabajo cancelado o con el
+        /// mensaje de que el archivo en espera se elimino, que es lo que sale
+        /// al cerrar el cuadro de guardar de una impresora a archivo.
+        /// </summary>
+        private static bool EsTrabajoCancelado(Exception ex)
+        {
+            var win32 = ex as System.ComponentModel.Win32Exception;
+            if (win32 == null)
+            {
+                win32 = ex.GetBaseException()
+                    as System.ComponentModel.Win32Exception;
+            }
+
+            if (win32 == null)
+            {
+                return false;
+            }
+
+            // ERROR_PRINT_CANCELLED (63) y ERROR_CANCELLED (1223).
+            if (win32.NativeErrorCode == 63 ||
+                win32.NativeErrorCode == 1223)
+            {
+                return true;
+            }
+
+            var mensaje = win32.Message ?? string.Empty;
+            return mensaje.IndexOf(
+                    "esperando para imprimirse",
+                    StringComparison.OrdinalIgnoreCase) >= 0 ||
+                mensaje.IndexOf(
+                    "waiting to be printed",
+                    StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         private PrinterSettings CreateSettings()
         {
             var settings = new PrinterSettings();
@@ -551,6 +654,24 @@ namespace FirmaAutomatica
                         settings.DefaultPageSettings.PaperSize = papel;
                     }
 
+                    // Las impresoras que escriben a un archivo —"Microsoft
+                    // Print to PDF" y compañia— necesitan saber el nombre del
+                    // archivo. Sin decirselo, Windows abre su propio cuadro de
+                    // guardar, y si se cancela ahi el trabajo llega aqui como
+                    // un error.
+                    if (settings.IsValid && EsImpresoraAArchivo(settings))
+                    {
+                        var archivo = PedirArchivoDeSalida(settings);
+                        if (archivo == null)
+                        {
+                            // Cancelar no es un fallo: se vuelve al cuadro.
+                            return;
+                        }
+
+                        settings.PrintToFile = true;
+                        settings.PrintFileName = archivo;
+                    }
+
                     trabajo.DocumentName = displayName;
                     trabajo.PrinterSettings = settings;
                     trabajo.DefaultPageSettings = settings.DefaultPageSettings;
@@ -562,6 +683,15 @@ namespace FirmaAutomatica
             }
             catch (Exception ex)
             {
+                if (EsTrabajoCancelado(ex))
+                {
+                    // El usuario ha cancelado en el cuadro del controlador.
+                    // Decirle que "no se pudo imprimir" es mentir y ademas
+                    // asusta: parece que el PDF esta roto.
+                    AppLog.Write("Impresion cancelada por el usuario: " + ex);
+                    return;
+                }
+
                 AppLog.Write("No se pudo imprimir: " + ex);
                 MessageBox.Show(
                     this,
