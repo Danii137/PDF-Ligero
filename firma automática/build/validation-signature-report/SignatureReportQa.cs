@@ -150,6 +150,46 @@ namespace SignatureReportQa
                 fallos++;
             }
 
+            // El aviso tiene que ser el de "no lo emite ninguna autoridad
+            // reconocida", no el de "no se ha podido comprobar". Si la
+            // comprobacion de la cadena revienta, el resultado final es el
+            // mismo —con avisos— pero la confianza no se ha mirado siquiera.
+            // Distinguirlos es lo unico que detecta ese fallo.
+            var avisaDeAutoridad = false;
+            var avisaDeQueNoPudo = false;
+            foreach (var aviso in firma.Warnings)
+            {
+                Console.WriteLine("   aviso: " + aviso);
+                if (aviso.IndexOf(
+                        "autoridad reconocida",
+                        StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    avisaDeAutoridad = true;
+                }
+
+                if (aviso.IndexOf(
+                        "no se ha podido comprobar quién",
+                        StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    avisaDeQueNoPudo = true;
+                }
+            }
+
+            if (avisaDeQueNoPudo)
+            {
+                Console.Error.WriteLine(
+                    "FAIL: la comprobación de la cadena ha reventado; la " +
+                    "confianza no se está mirando.");
+                fallos++;
+            }
+            else if (!avisaDeAutoridad)
+            {
+                Console.Error.WriteLine(
+                    "FAIL: un certificado sin autoridad reconocida debería " +
+                    "avisar de ello.");
+                fallos++;
+            }
+
             return fallos;
         }
 

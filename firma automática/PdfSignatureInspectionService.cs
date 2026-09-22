@@ -217,11 +217,9 @@ namespace FirmaAutomatica
                     return report;
                 }
 
-                var confianza = LoadTrustedRoots();
                 foreach (var nombre in nombres)
                 {
-                    report.Signatures.Add(
-                        InspectOne(campos, nombre, confianza));
+                    report.Signatures.Add(InspectOne(campos, nombre));
                 }
             }
             catch (Exception ex)
@@ -247,8 +245,7 @@ namespace FirmaAutomatica
 
         private static PdfSignatureInfo InspectOne(
             AcroFields campos,
-            string nombre,
-            IList<BcCertificate> confianza)
+            string nombre)
         {
             var info = new PdfSignatureInfo(nombre);
             try
@@ -341,7 +338,7 @@ namespace FirmaAutomatica
             }
 
             avisos |= CheckCertificateDates(info, certificado);
-            avisos |= CheckTrust(info, firma, confianza);
+            avisos |= CheckTrust(info, firma);
 
             info.Warnings.Add(
                 "No se han consultado listas de revocación: no se puede " +
@@ -412,20 +409,22 @@ namespace FirmaAutomatica
         /// Comprueba la cadena contra los certificados raiz en los que confia
         /// este equipo. Sin esto, cualquiera puede firmar con un certificado
         /// que se haya hecho el mismo.
+        ///
+        /// Se usa X509Chain, la cadena de Windows, y no el
+        /// CertificateVerification de iTextSharp: ese recorre las extensiones
+        /// criticas del certificado sin comprobar si la lista existe, y con
+        /// un certificado que no tenga ninguna lanza una
+        /// NullReferenceException. Se descubrio ejecutando el programa, y
+        /// mientras duro, la confianza no se llegaba a mirar nunca: todas las
+        /// firmas salian con un "no se ha podido comprobar".
+        ///
+        /// Ademas X509Chain es la que usa el sistema, asi que lo que aqui sale
+        /// de confianza es lo mismo que considera de confianza el equipo.
         /// </summary>
         private static bool CheckTrust(
             PdfSignatureInfo info,
-            PdfPKCS7 firma,
-            IList<BcCertificate> confianza)
+            PdfPKCS7 firma)
         {
-            if (confianza == null || confianza.Count == 0)
-            {
-                info.Warnings.Add(
-                    "No se han podido leer los certificados de confianza " +
-                    "del equipo.");
-                return true;
-            }
-
             try
             {
                 var cadena = firma.SignCertificateChain;
@@ -436,16 +435,35 @@ namespace FirmaAutomatica
                     return true;
                 }
 
-                var fallos = CertificateVerification.VerifyCertificates(
-                    cadena,
-                    confianza,
-                    null,
-                    info.SignedAt.HasValue ? info.SignedAt.Value : DateTime.Now);
-                if (fallos != null && fallos.Count > 0)
+                using (var chain = new X509Chain())
                 {
-                    info.Warnings.Add(
-                        "El certificado no lo emite ninguna autoridad " +
-                        "reconocida por este equipo.");
+                    // Las revocaciones no se consultan: se avisa aparte de
+                    // que no se han mirado, y pedirlas aqui bloquearia la
+                    // apertura del documento contra internet.
+                    chain.ChainPolicy.RevocationMode =
+                        X509RevocationMode.NoCheck;
+                    chain.ChainPolicy.VerificationTime =
+                        info.SignedAt.HasValue
+                            ? info.SignedAt.Value
+                            : DateTime.Now;
+
+                    // Los intermedios que viaja dentro del PDF se le dan a la
+                    // cadena: sin ellos, un certificado perfectamente valido
+                    // saldria como cadena incompleta.
+                    for (var i = 1; i < cadena.Length; i++)
+                    {
+                        chain.ChainPolicy.ExtraStore.Add(
+                            ToDotNet(cadena[i]));
+                    }
+
+                    var valida = chain.Build(ToDotNet(cadena[0]));
+                    if (valida)
+                    {
+                        return false;
+                    }
+
+                    var motivo = DescribeChainFailure(chain);
+                    info.Warnings.Add(motivo);
                     return true;
                 }
             }
@@ -456,71 +474,60 @@ namespace FirmaAutomatica
                     "No se ha podido comprobar quién emitió el certificado.");
                 return true;
             }
-
-            return false;
         }
 
         /// <summary>
-        /// Certificados raiz e intermedios en los que confia Windows. Es lo
-        /// mismo que usa el navegador, asi que lo que aqui sale de confianza
-        /// es lo que el equipo considera de confianza.
+        /// Por que no vale la cadena, en castellano. La caducidad se informa
+        /// aparte, asi que aqui se resume lo que queda.
         /// </summary>
-        private static IList<BcCertificate> LoadTrustedRoots()
+        private static string DescribeChainFailure(X509Chain chain)
         {
-            var confianza = new List<BcCertificate>();
-            var ubicaciones = new[]
-            {
-                StoreLocation.LocalMachine,
-                StoreLocation.CurrentUser
-            };
-            var almacenes = new[]
-            {
-                StoreName.Root,
-                StoreName.CertificateAuthority
-            };
+            var raizDesconocida = false;
+            var cadenaIncompleta = false;
+            var firmaMala = false;
 
-            foreach (var ubicacion in ubicaciones)
+            foreach (var elemento in chain.ChainStatus)
             {
-                foreach (var nombre in almacenes)
+                switch (elemento.Status)
                 {
-                    X509Store store = null;
-                    try
-                    {
-                        store = new X509Store(nombre, ubicacion);
-                        store.Open(OpenFlags.ReadOnly);
-                        foreach (var certificado in store.Certificates)
-                        {
-                            try
-                            {
-                                confianza.Add(
-                                    DotNetUtilities.FromX509Certificate(
-                                        certificado));
-                            }
-                            catch (Exception)
-                            {
-                            }
-                        }
-                    }
-                    catch (Exception)
-                    {
-                    }
-                    finally
-                    {
-                        if (store != null)
-                        {
-                            try
-                            {
-                                store.Close();
-                            }
-                            catch (Exception)
-                            {
-                            }
-                        }
-                    }
+                    case X509ChainStatusFlags.UntrustedRoot:
+                        raizDesconocida = true;
+                        break;
+
+                    case X509ChainStatusFlags.PartialChain:
+                        cadenaIncompleta = true;
+                        break;
+
+                    case X509ChainStatusFlags.NotSignatureValid:
+                        firmaMala = true;
+                        break;
                 }
             }
 
-            return confianza;
+            if (firmaMala)
+            {
+                return "La cadena del certificado no cuadra: alguno de sus " +
+                    "eslabones no está bien firmado.";
+            }
+
+            if (raizDesconocida)
+            {
+                return "El certificado no lo emite ninguna autoridad " +
+                    "reconocida por este equipo.";
+            }
+
+            if (cadenaIncompleta)
+            {
+                return "Falta parte de la cadena del certificado, así que no " +
+                    "se puede llegar hasta una autoridad reconocida.";
+            }
+
+            return "El certificado no supera la comprobación de este equipo.";
+        }
+
+        private static X509Certificate2 ToDotNet(BcCertificate certificado)
+        {
+            return new X509Certificate2(certificado.GetEncoded());
         }
 
         private static string DescribeSubject(
