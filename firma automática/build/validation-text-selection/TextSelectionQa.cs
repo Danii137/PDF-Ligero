@@ -177,6 +177,13 @@ namespace TextSelectionQa
                 return 1;
             }
 
+            // El portapapeles de Windows se sirve por OLE y necesita que el
+            // hilo atienda mensajes para completar la entrega. La aplicacion
+            // real tiene su bucle de mensajes; esta prueba no, asi que hay
+            // que bombear a mano antes de leer. Sin esto el portapapeles sale
+            // vacio aunque la copia haya ido bien.
+            Application.DoEvents();
+
             string portapapeles;
             try
             {
@@ -198,6 +205,16 @@ namespace TextSelectionQa
             {
                 Console.Error.WriteLine(
                     "FAIL: el portapapeles no coincide con lo seleccionado.");
+                Console.Error.WriteLine(
+                    "   seleccionado (" +
+                    seleccion.SelectedText.Length.ToString(
+                        CultureInfo.InvariantCulture) + "): \"" +
+                    Recortar(seleccion.SelectedText) + "\"");
+                Console.Error.WriteLine(
+                    "   portapapeles (" +
+                    portapapeles.Length.ToString(
+                        CultureInfo.InvariantCulture) + "): \"" +
+                    Recortar(portapapeles) + "\"");
                 return 1;
             }
 
@@ -234,6 +251,16 @@ namespace TextSelectionQa
             }
 
             return 0;
+        }
+
+        private static string Recortar(string texto)
+        {
+            var limpio = (texto ?? string.Empty)
+                .Replace("\r", "\\r")
+                .Replace("\n", "\\n");
+            return limpio.Length <= 90
+                ? limpio
+                : limpio.Substring(0, 87) + "...";
         }
 
         private static IList<PdfTextBlock> LeerLineas(
