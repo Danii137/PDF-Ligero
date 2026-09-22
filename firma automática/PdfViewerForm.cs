@@ -97,6 +97,7 @@ namespace FirmaAutomatica
         private readonly ToolStripMenuItem organizePagesMenuItem;
         private readonly ToolStripMenuItem extractPagesMenuItem;
         private readonly ToolStripMenuItem stampMenuItem;
+        private readonly ToolStripMenuItem signatureReportMenuItem;
         private readonly ToolStripMenuItem shrinkMenuItem;
         private readonly ToolStripMenuItem editBookmarksMenuItem;
         private readonly ToolStripMenuItem compareMenuItem;
@@ -705,6 +706,10 @@ namespace FirmaAutomatica
                 moreMenu,
                 "Marca de agua y numeración…",
                 delegate { StampActiveDocument(); });
+            signatureReportMenuItem = AddMenuItem(
+                moreMenu,
+                "Firmas del documento…",
+                delegate { ShowSignatureReport(); });
             shrinkMenuItem = AddMenuItem(
                 moreMenu,
                 "Reducir el tamaño…",
@@ -4867,6 +4872,7 @@ namespace FirmaAutomatica
                     ". Contenido=" + workspace.ContentPath +
                     ". Paginas=" + workspace.Document.PageCount +
                     ". Protegido=" + (openedWithPassword ? "si" : "no"));
+                AnnounceSignaturesIfAny(workspace);
                 return true;
             }
             catch (Exception ex)
@@ -9262,6 +9268,7 @@ namespace FirmaAutomatica
                 hasLoadedDocument &&
                 !comparisonActive &&
                 !IsPageStructureOperationInProgress;
+            signatureReportMenuItem.Enabled = hasLoadedDocument;
             shrinkMenuItem.Enabled =
                 hasLoadedDocument &&
                 !comparisonActive &&
@@ -9571,6 +9578,92 @@ namespace FirmaAutomatica
                     System.Globalization.CultureInfo.CurrentCulture) +
                 " archivos junto al original, que no se ha modificado.";
             OfferToShowInExplorer(resultado.OutputPaths);
+        }
+
+        /// <summary>
+        /// Enseña quien ha firmado el documento y si la firma sigue valiendo.
+        /// </summary>
+        private void ShowSignatureReport()
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null ||
+                string.IsNullOrEmpty(workspace.ContentPath))
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            CancelRectangleZoom(workspace);
+            PdfSignatureReport informe = null;
+            using (var progreso = new PdfBackgroundOperationForm(
+                "Firmas del documento",
+                "Comprobando las firmas…",
+                delegate
+                {
+                    informe = PdfSignatureInspectionService.Inspect(
+                        workspace.ContentPath);
+                }))
+            {
+                progreso.Run(this);
+            }
+
+            if (informe == null)
+            {
+                return;
+            }
+
+            using (var ventana = new PdfSignatureReportForm(
+                informe,
+                workspace.DisplayName))
+            {
+                ventana.ShowDialog(this);
+            }
+        }
+
+        /// <summary>
+        /// Al abrir un PDF firmado se dice en la barra, sin preguntar nada:
+        /// enterarse de que un documento venia firmado —o de que le han
+        /// metido mano despues— no deberia depender de ir a buscarlo.
+        /// </summary>
+        private void AnnounceSignaturesIfAny(PdfWorkspace workspace)
+        {
+            if (workspace == null ||
+                string.IsNullOrEmpty(workspace.ContentPath))
+            {
+                return;
+            }
+
+            var ruta = workspace.ContentPath;
+            var worker = new BackgroundWorker();
+            PdfSignatureReport informe = null;
+            worker.DoWork += delegate
+            {
+                informe = PdfSignatureInspectionService.Inspect(ruta);
+            };
+            worker.RunWorkerCompleted += delegate
+            {
+                worker.Dispose();
+                if (informe == null ||
+                    !informe.HasSignatures ||
+                    workspace != activeWorkspace ||
+                    workspace.IsDisposed)
+                {
+                    return;
+                }
+
+                documentLabel.Text = informe.Summary +
+                    "   ·   Más > Firmas del documento";
+            };
+
+            try
+            {
+                worker.RunWorkerAsync();
+            }
+            catch (Exception ex)
+            {
+                worker.Dispose();
+                AppLog.Write("No se pudieron mirar las firmas: " + ex);
+            }
         }
 
         /// <summary>
