@@ -84,6 +84,8 @@ namespace FirmaAutomatica
         private readonly ContextMenuStrip moreMenu;
         private readonly ToolStripMenuItem undoMenuItem;
         private readonly ToolStripMenuItem redoMenuItem;
+        private readonly ToolStripMenuItem copyTextMenuItem;
+        private readonly ToolStripMenuItem selectPageTextMenuItem;
         private readonly ToolStripMenuItem saveCopyMenuItem;
         private readonly ToolStripMenuItem printMenuItem;
         private readonly ToolStripMenuItem fitWidthMenuItem;
@@ -643,6 +645,15 @@ namespace FirmaAutomatica
                 moreMenu,
                 "Rehacer                           Ctrl+Y",
                 delegate { RedoActiveDocument(); });
+            moreMenu.Items.Add(new ToolStripSeparator());
+            copyTextMenuItem = AddMenuItem(
+                moreMenu,
+                "Copiar el texto seleccionado   Ctrl+C",
+                delegate { CopySelectedText(); });
+            selectPageTextMenuItem = AddMenuItem(
+                moreMenu,
+                "Seleccionar el texto de la página   Ctrl+A",
+                delegate { SelectAllTextOnPage(); });
             moreMenu.Items.Add(new ToolStripSeparator());
             saveCopyMenuItem = AddMenuItem(
                 moreMenu,
@@ -4191,6 +4202,10 @@ namespace FirmaAutomatica
                 workspace.Document = nextDocument;
                 nextDocument = null;
                 workspace.ContentPath = Path.GetFullPath(revisionPath);
+                // Las lineas guardadas para seleccionar texto son de la
+                // revision anterior: si no se tiran, se selecciona donde ya
+                // no hay nada.
+                InvalidateTextSelection(workspace);
                 workspace.Viewer.Document = workspace.Document;
                 viewerDetached = false;
                 workspace.Viewer.DefaultDocumentName = workspace.DisplayName;
@@ -4408,9 +4423,32 @@ namespace FirmaAutomatica
                 AllowDrop = true,
                 TabStop = true
             };
+            // La seleccion de texto se crea antes que el zoom por rectangulo
+            // porque este le pregunta si hay texto bajo el punto para cederle
+            // el arrastre.
+            var destinoSeleccion = workspace;
+            workspace.TextSelection = new PdfTextSelectionController(
+                workspace.Viewer.Renderer,
+                delegate { return CanSelectText(destinoSeleccion); },
+                delegate(int pagina)
+                {
+                    return LoadTextBlocks(destinoSeleccion, pagina);
+                },
+                delegate(string mensaje)
+                {
+                    documentLabel.Text = mensaje;
+                });
+
             workspace.RectangleZoom = new PdfRectangleZoomController(
                 workspace.Viewer.Renderer,
                 delegate { return CanUseRectangleZoom(workspace); },
+                delegate(Point punto)
+                {
+                    // Sobre una linea de texto manda la seleccion; en el
+                    // resto de la pagina, el zoom por rectangulo de siempre.
+                    return destinoSeleccion.TextSelection != null &&
+                        destinoSeleccion.TextSelection.HasTextAt(punto);
+                },
                 AccentColor,
                 AccentTextColor,
                 HeaderBackgroundColor);
@@ -5291,6 +5329,12 @@ namespace FirmaAutomatica
             {
                 workspace.RectangleZoom.Dispose();
                 workspace.RectangleZoom = null;
+            }
+
+            if (workspace.TextSelection != null)
+            {
+                workspace.TextSelection.Dispose();
+                workspace.TextSelection = null;
             }
 
             workspace.Viewer.Renderer.Scroll -= workspace.ScrollHandler;
@@ -8694,6 +8738,30 @@ namespace FirmaAutomatica
                 return;
             }
 
+            // Copiar y seleccionar todo solo cuando la busqueda no tiene el
+            // foco: ahi Ctrl+C y Ctrl+A son los de su cuadro de texto.
+            if (e.Control && !e.Shift && !e.Alt &&
+                e.KeyCode == Keys.C &&
+                !searchTextBox.Focused &&
+                !currentPageTextBox.Focused)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                CopySelectedText();
+                return;
+            }
+
+            if (e.Control && !e.Shift && !e.Alt &&
+                e.KeyCode == Keys.A &&
+                !searchTextBox.Focused &&
+                !currentPageTextBox.Focused)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                SelectAllTextOnPage();
+                return;
+            }
+
             if (e.Control && e.Shift && e.KeyCode == Keys.S &&
                 signToolButton.Enabled)
             {
@@ -9140,6 +9208,14 @@ namespace FirmaAutomatica
                 !activeWorkspace.EditHistoryFaulted &&
                 activeWorkspace.EditSession != null &&
                 activeWorkspace.EditSession.CanRedo;
+            copyTextMenuItem.Enabled =
+                hasLoadedDocument &&
+                activeWorkspace.TextSelection != null &&
+                activeWorkspace.TextSelection.HasSelection;
+            selectPageTextMenuItem.Enabled =
+                hasLoadedDocument &&
+                !comparisonActive &&
+                CanSelectText(activeWorkspace);
             saveCopyMenuItem.Enabled =
                 hasLoadedDocument &&
                 !IsPageStructureOperationInProgress;
@@ -9264,6 +9340,64 @@ namespace FirmaAutomatica
             if (workspace != null && workspace.RectangleZoom != null)
             {
                 workspace.RectangleZoom.Cancel();
+            }
+        }
+
+        /// <summary>
+        /// Se puede seleccionar texto: en modo neutro, sin ninguna
+        /// herramienta encendida que quiera el arrastre para lo suyo.
+        /// </summary>
+        private bool CanSelectText(PdfWorkspace workspace)
+        {
+            return workspace != null &&
+                workspace == activeWorkspace &&
+                workspace.IsLoaded &&
+                !workspace.IsDisposed &&
+                workspace.Document != null &&
+                comparisonSurface == null &&
+                !IsTextEditSelectionActive &&
+                !IsPageStructureOperationInProgress &&
+                (workspace.Measurement == null ||
+                    !workspace.Measurement.IsActive) &&
+                (workspace.Annotation == null ||
+                    !workspace.Annotation.IsActive) &&
+                (workspace.InlineEdit == null ||
+                    !workspace.InlineEdit.IsActive) &&
+                !activatingWorkspace &&
+                !closingAll;
+        }
+
+        private void CopySelectedText()
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null || workspace.TextSelection == null)
+            {
+                return;
+            }
+
+            workspace.TextSelection.CopySelection();
+        }
+
+        private void SelectAllTextOnPage()
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null || workspace.TextSelection == null)
+            {
+                return;
+            }
+
+            workspace.TextSelection.SelectCurrentPage();
+        }
+
+        /// <summary>
+        /// Las lineas guardadas para seleccionar dejan de valer cuando el
+        /// documento cambia de revision.
+        /// </summary>
+        private static void InvalidateTextSelection(PdfWorkspace workspace)
+        {
+            if (workspace != null && workspace.TextSelection != null)
+            {
+                workspace.TextSelection.InvalidateBlocks();
             }
         }
 
@@ -9975,6 +10109,7 @@ namespace FirmaAutomatica
             public PdfViewer Viewer;
             public PdfiumDocument Document;
             public PdfRectangleZoomController RectangleZoom;
+            public PdfTextSelectionController TextSelection;
             public PdfTextEditSelectionController TextEditSelection;
             public PdfMeasurementController Measurement;
 

@@ -27,6 +27,7 @@ namespace FirmaAutomatica
 
         private readonly PdfRenderer renderer;
         private readonly Func<bool> canStartGesture;
+        private readonly Func<Point, bool> shouldYieldGesture;
         private readonly RectangleZoomMarker marker;
         private readonly Button acceptButton;
         private readonly ToolTip toolTip;
@@ -48,6 +49,27 @@ namespace FirmaAutomatica
             Color accentColor,
             Color accentTextColor,
             Color surfaceColor)
+            : this(
+                renderer,
+                canStartGesture,
+                null,
+                accentColor,
+                accentTextColor,
+                surfaceColor)
+        {
+        }
+
+        /// <param name="shouldYieldGesture">
+        /// Devuelve true cuando el arrastre pertenece a otra herramienta en
+        /// ese punto —hoy, la seleccion de texto— y el zoom debe apartarse.
+        /// </param>
+        public PdfRectangleZoomController(
+            PdfRenderer renderer,
+            Func<bool> canStartGesture,
+            Func<Point, bool> shouldYieldGesture,
+            Color accentColor,
+            Color accentTextColor,
+            Color surfaceColor)
         {
             if (renderer == null)
             {
@@ -56,6 +78,7 @@ namespace FirmaAutomatica
 
             this.renderer = renderer;
             this.canStartGesture = canStartGesture;
+            this.shouldYieldGesture = shouldYieldGesture;
             marker = new RectangleZoomMarker(accentColor);
 
             acceptButton = new Button
@@ -403,6 +426,12 @@ namespace FirmaAutomatica
                 return false;
             }
 
+            if (ShouldYield(location))
+            {
+                Cancel();
+                return false;
+            }
+
             if (HasSelection)
             {
                 var selectedClientBounds = GetSelectionClientBounds();
@@ -527,6 +556,27 @@ namespace FirmaAutomatica
                 renderer.Visible &&
                 renderer.Document != null &&
                 (canStartGesture == null || canStartGesture());
+        }
+
+        /// <summary>
+        /// El arrastre pertenece a otra herramienta en este punto. Un fallo
+        /// al preguntarlo no puede quitar el zoom por rectangulo.
+        /// </summary>
+        private bool ShouldYield(Point location)
+        {
+            if (shouldYieldGesture == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                return shouldYieldGesture(location);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         private void Renderer_ViewportChanged(object sender, EventArgs e)
