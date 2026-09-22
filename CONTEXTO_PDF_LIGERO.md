@@ -2,16 +2,16 @@
 
 > Documento de relevo para Claude Code, Codex u otro agente.
 >
-> **Última auditoría:** 5 de agosto de 2026  
-> **Estado funcional estable:** fases 1–8 terminadas y **fase 9 completada**
-> salvo lo que depende de una compra o una decisión: endurecimiento transversal
-> de PDFs protegidos, instalador único, revisión de licencias y firma
-> Authenticode preparada.  
+> **Última auditoría:** 22 de septiembre de 2026  
+> **Estado funcional estable:** fases 1–10 terminadas, más la **fase 11**
+> (herramientas de uso diario: seleccionar y copiar texto, extraer y dividir,
+> reducir tamaño, marca de agua y numeración, validar firmas, exportar,
+> adjuntos, recortar, «Acerca de»).  
 > **Licencia:** AGPL v3, decidido el 5 de agosto de 2026 (`LICENSE`), por
-> incorporar iTextSharp 5.  
-> **Siguiente prioridad:** comprar el certificado de firma de código, añadir un
-> «Acerca de» en la ventana y, como proyecto aparte, bifurcar PdfiumViewer si se
-> quiere actualizar PDFium.  
+> incorporar iTextSharp 5. El aviso legal y la oferta de código fuente ya se
+> ven desde la ventana, con lo que la sección 5 de la AGPL queda cerrada.  
+> **Siguiente prioridad:** comprar el certificado de firma de código y, como
+> proyecto aparte, bifurcar PdfiumViewer si se quiere actualizar PDFium.  
 > **Regla de lectura:** cuando este archivo y una suposición entren en conflicto,
 > comprobar primero el código y los informes de QA. Las casillas pendientes de
 > la sección 12 son el protocolo para trabajos futuros, no tareas abiertas de
@@ -421,6 +421,22 @@ La siguiente lista describe comportamiento estable que no debe degradarse:
 - alineación automática/manual de la comparación;
 - medición calibrada con `Ctrl+Mayús+M`, distancia, perímetro, área,
   escalas rápidas/calibración conocida y unidades mm/cm/m;
+- anotación con rotulador, subrayador y notas;
+- **selección de texto con el ratón y copia** con `Ctrl+C`; `Ctrl+A` selecciona
+  la página y doble clic una palabra. El zoom por rectángulo sigue siendo el
+  arrastre fuera del texto;
+- **extraer páginas a otro PDF y dividir** el documento en partes;
+- **reducir el tamaño** bajando la resolución de las imágenes que van sobradas;
+- **marca de agua y numeración** de hojas, con la numeración empezando donde se
+  quiera;
+- **ver y validar las firmas** que ya trae un PDF, con aviso automático al
+  abrirlo;
+- **exportar** las páginas a imagen y el texto a `.txt`;
+- **archivos adjuntos**: verlos, sacarlos y meter otros;
+- duplicar página, meter una hoja en blanco y recortar márgenes al contenido;
+- **lista de resultados de búsqueda** con página y contexto;
+- **«Acerca de»** con la licencia, la oferta de código fuente y los avisos de
+  terceros;
 - interfaz compacta y adaptada a 900×620 y escalas 125/150 %.
 
 El detalle histórico y los criterios ya superados están en:

@@ -12,16 +12,25 @@ contextual del Explorador.
 
 - Visor rápido con varios documentos en pestañas y carga perezosa.
 - Miniaturas virtualizadas, marcadores y búsqueda que solo se ejecuta al pulsar
-  `Enter`.
+  `Enter`, con lista de resultados.
+- Seleccionar texto con el ratón y copiarlo con `Ctrl+C`.
 - Combinar PDFs, insertar páginas arrastrando entre miniaturas, y quitar, girar
   o reordenar páginas.
-- OCR local en español e inglés, con orientación automática y enderezado.
+- Extraer páginas a otro PDF, dividir el documento y recortar los márgenes.
+- Reducir el tamaño para poder enviarlo por correo.
+- Marca de agua y numeración de hojas.
+- Exportar las páginas a imagen y el texto a `.txt`.
+- Archivos adjuntos: verlos, sacarlos y meter otros.
+- OCR local con idioma, columnas y calidad a elegir, orientación automática y
+  enderezado.
 - Editor de marcadores con destinos y acciones avanzadas.
 - Comparación de revisiones de planos: superposición, rojo/cian, cortinilla y
   alineación automática.
 - Medición calibrada de distancias, perímetros y áreas.
 - Edición visual de texto y rellenado de formularios AcroForm sin aplanarlos.
-- Firma digital con certificado, con apariencia distinta por certificado.
+- Firma digital con certificado, con apariencia distinta por certificado, y
+  comprobación de las firmas que ya trae un PDF: quién firma y si sigue
+  valiendo.
 - PDFs protegidos con contraseña: se piden en español y se abren en modo de solo
   lectura, explicando qué herramientas quedan desactivadas y por qué.
 

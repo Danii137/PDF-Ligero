@@ -401,11 +401,65 @@ cambios de flujo de contenido en una revisión incremental.
 Fuera de alcance, como estaba previsto: redacción segura verificable y formas
 geométricas.
 
+## Fase 11 — herramientas de uso diario
+
+Cerrada el 22 de septiembre de 2026, después de una auditoría que partió de una
+queja concreta: «el OCR no funciona bien».
+
+**El OCR.** Eran cinco fallos sobre la misma causa: la capa de texto invisible
+se escribía creyéndose cualquier caja que devolviera Tesseract. El cuerpo de
+letra ahora sale de la mediana del renglón y no de cada palabra, con tope de una
+pulgada; las palabras de un renglón comparten línea base; hay filtro de
+confianza —antes solo se descartaba una confianza negativa, valor que Tesseract
+nunca da en nivel de palabra, así que entraba todo—; se lee a 300 ppp en vez de
+240 y sin suavizado de subpíxeles, que orlaba las letras de rojo y azul. Medido
+sobre el fixture: 790 palabras frente a 774.
+
+Y vuelve la detección automática de columnas. El cambio a «una sola columna» se
+había hecho por un diagnóstico que el commit siguiente deshizo —las «columnas»
+eran las franjas del subrayador— y dejaba ilegible cualquier documento a dos
+columnas. Queda como opción, junto con el idioma y la calidad, que antes estaban
+escritos a fuego.
+
+**Lo que faltaba para el uso diario.** Seleccionar texto con el ratón y
+copiarlo, que era la carencia más llamativa: en todo el programa no había una
+sola llamada al portapapeles. Extraer páginas a otro PDF y dividir el documento.
+Reducir el tamaño para poder enviarlo por correo. Marca de agua y numeración de
+hojas. Ver y validar las firmas que ya trae un PDF, con aviso al abrirlo.
+Exportar a imagen y a texto. Archivos adjuntos. Duplicar página, hoja en blanco
+y recortar márgenes. Lista de resultados de búsqueda.
+
+**Dos fallos del registro real.** Cancelar en el cuadro de guardar de una
+impresora a archivo se contaba como error de impresión —cuatro veces en el
+registro—. Y firmar con un certificado cuya clave está en CNG fallaba porque
+`certificate.PrivateKey` no devuelve null: lanza.
+
+**«Acerca de».** Cierra la sección 5 de la AGPL, que exige enseñar el aviso
+legal y ofrecer el código fuente desde el propio programa.
+
+Once bancos de pruebas nuevos, uno por entrega. Cada uno comprueba el resultado
+—el texto del PDF, los píxeles de la imagen, los bytes del adjunto— y no que el
+archivo exista.
+
 ## Siguiente entrega
 
-De la fase 9 solo queda comprar el certificado de firma de código y añadir el
-«Acerca de». La actualización de PDFium es un proyecto aparte, con el análisis
-ya hecho.
+De la fase 9 solo queda comprar el certificado de firma de código. La
+actualización de PDFium es un proyecto aparte, con el análisis ya hecho.
+
+Pendiente de la auditoría de septiembre, por orden de lo que se notaría:
+
+- **anotaciones que faltan**: rectángulo, elipse, flecha y línea, cuadro de
+  texto y sello. Para marcar un plano, la flecha y el cuadro de texto son las
+  que más se usan, y solo hay rotulador, subrayador y nota;
+- **panel de anotaciones** para listarlas, saltar a ellas y exportarlas;
+- **proteger con contraseña**: sabe abrir PDFs protegidos, no sabe proteger ni
+  desproteger;
+- **causa de fondo abierta**: `LoadExisting` sigue lanzando al releer las marcas
+  después de guardarlas. El síntoma está tapado desde el commit 23e73e6, pero el
+  fallo se sigue anotando en el registro;
+- **un clon nuevo del repositorio no compila**: `build.ps1` exige
+  `runtime/ocr` con Tesseract y los modelos, y esa carpeta está en
+  `.gitignore` sin script que la descargue.
 
 Como mejora funcional independiente queda reutilizar opcionalmente una posición
 normalizada de firma en lotes, confirmando cada PDF antes de firmarlo.
