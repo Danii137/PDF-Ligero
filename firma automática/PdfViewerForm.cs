@@ -95,6 +95,7 @@ namespace FirmaAutomatica
         private readonly ToolStripMenuItem rotateRightMenuItem;
         private readonly ToolStripMenuItem ocrMenuItem;
         private readonly ToolStripMenuItem organizePagesMenuItem;
+        private readonly ToolStripMenuItem extractPagesMenuItem;
         private readonly ToolStripMenuItem editBookmarksMenuItem;
         private readonly ToolStripMenuItem compareMenuItem;
         private readonly ToolStripMenuItem measureMenuItem;
@@ -694,6 +695,10 @@ namespace FirmaAutomatica
                 moreMenu,
                 "Organizar páginas…",
                 delegate { ActivatePageOrganizer(); });
+            extractPagesMenuItem = AddMenuItem(
+                moreMenu,
+                "Extraer o dividir páginas…",
+                delegate { ExtractOrSplitPages(); });
             editBookmarksMenuItem = AddMenuItem(
                 moreMenu,
                 "Editar marcadores…        Ctrl+Mayús+B",
@@ -9237,6 +9242,12 @@ namespace FirmaAutomatica
                 : "OCR y enderezado…";
             ocrMenuItem.Enabled = ocrInProgress || canEditDocument;
             organizePagesMenuItem.Enabled = canEditDocument;
+            // Extraer no cambia el documento abierto: basta con tenerlo
+            // cargado y que no haya otra operacion de paginas en curso.
+            extractPagesMenuItem.Enabled =
+                hasLoadedDocument &&
+                !comparisonActive &&
+                !IsPageStructureOperationInProgress;
             editBookmarksMenuItem.Enabled = canEditDocument;
             compareMenuItem.Text = comparisonActive
                 ? "Cerrar comparación              Esc"
@@ -9340,6 +9351,244 @@ namespace FirmaAutomatica
             if (workspace != null && workspace.RectangleZoom != null)
             {
                 workspace.RectangleZoom.Cancel();
+            }
+        }
+
+        /// <summary>
+        /// Saca paginas a un PDF nuevo o parte el documento en varios. El
+        /// abierto no se toca: no hay revision que aplicar ni nada que
+        /// deshacer.
+        /// </summary>
+        private void ExtractOrSplitPages()
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null ||
+                workspace.Document == null ||
+                workspace.Document.PageCount < 1 ||
+                string.IsNullOrEmpty(workspace.ContentPath))
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            if (IsPageStructureOperationInProgress)
+            {
+                documentLabel.Text =
+                    "Ya hay otra edición en curso. Espera un momento…";
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            CancelRectangleZoom(workspace);
+            var pageCount = workspace.Document.PageCount;
+            var currentPageNumber = Math.Max(
+                0,
+                Math.Min(
+                    pageCount - 1,
+                    workspace.Viewer.Renderer.Page)) + 1;
+            var selectedPageNumbers = new List<int>();
+            foreach (var indice in NormalizeSelectedPages(
+                workspace.Thumbnails.SelectedPages,
+                pageCount))
+            {
+                selectedPageNumbers.Add(indice + 1);
+            }
+
+            PdfPageExtractMode modo;
+            IList<int> paginas;
+            var porArchivo = 1;
+            using (var opciones = new PdfPageExtractForm(
+                pageCount,
+                currentPageNumber,
+                selectedPageNumbers))
+            {
+                if (opciones.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                modo = opciones.Mode;
+                paginas = opciones.Pages;
+                porArchivo = opciones.PagesPerFile;
+            }
+
+            var origen = workspace.ContentPath;
+            var destino = string.Empty;
+            if (modo == PdfPageExtractMode.Extraer)
+            {
+                var propuesta =
+                    PdfPageExtractService.SuggestExtractPath(origen, paginas);
+                using (var guardar = new SaveFileDialog())
+                {
+                    guardar.Title = "Guardar las páginas extraídas";
+                    guardar.Filter = "Documentos PDF (*.pdf)|*.pdf";
+                    guardar.DefaultExt = "pdf";
+                    guardar.AddExtension = true;
+                    guardar.OverwritePrompt = true;
+                    guardar.InitialDirectory =
+                        Path.GetDirectoryName(propuesta);
+                    guardar.FileName = Path.GetFileName(propuesta);
+                    if (guardar.ShowDialog(this) != DialogResult.OK)
+                    {
+                        return;
+                    }
+
+                    destino = guardar.FileName;
+                }
+
+                // El destino no puede ser el propio documento abierto: se
+                // estaria leyendo y escribiendo el mismo archivo.
+                if (string.Equals(
+                        Path.GetFullPath(destino),
+                        Path.GetFullPath(origen),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    MessageBox.Show(
+                        this,
+                        "Elige otro nombre: ese es el PDF que está abierto.",
+                        "Extraer páginas",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
+                // SaveFileDialog ya ha preguntado por la sobrescritura, pero
+                // el servicio se niega a pisar nada: se quita antes.
+                try
+                {
+                    if (File.Exists(destino))
+                    {
+                        File.Delete(destino);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Write(
+                        "No se pudo reemplazar el archivo elegido: " + ex);
+                    ShowPdfProblem(
+                        "Extraer páginas",
+                        "No se pudo reemplazar ese archivo.",
+                        "Puede que esté abierto en otro programa.",
+                        ex,
+                        destino);
+                    return;
+                }
+            }
+
+            PdfPageExtractResult resultado = null;
+            Exception fallo = null;
+            var titulo = modo == PdfPageExtractMode.Extraer
+                ? "Extraer páginas"
+                : "Dividir el documento";
+            using (var progreso = new PdfBackgroundOperationForm(
+                titulo,
+                modo == PdfPageExtractMode.Extraer
+                    ? "Sacando las páginas…"
+                    : "Partiendo el documento…",
+                delegate
+                {
+                    try
+                    {
+                        resultado = modo == PdfPageExtractMode.Extraer
+                            ? PdfPageExtractService.Extract(
+                                origen,
+                                paginas,
+                                destino,
+                                null,
+                                CancellationToken.None)
+                            : PdfPageExtractService.Split(
+                                origen,
+                                porArchivo,
+                                Path.GetDirectoryName(origen),
+                                null,
+                                CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        fallo = ex;
+                    }
+                }))
+            {
+                progreso.Run(this);
+            }
+
+            if (fallo != null)
+            {
+                AppLog.Write("No se pudieron extraer las páginas: " + fallo);
+                ShowPdfProblem(
+                    titulo,
+                    modo == PdfPageExtractMode.Extraer
+                        ? "No se pudieron sacar las páginas."
+                        : "No se pudo dividir el documento.",
+                    "El PDF abierto no se ha modificado.",
+                    fallo,
+                    origen);
+                return;
+            }
+
+            if (resultado == null || resultado.OutputPaths.Count == 0)
+            {
+                return;
+            }
+
+            if (modo == PdfPageExtractMode.Extraer)
+            {
+                documentLabel.Text =
+                    "Creado " +
+                    Path.GetFileName(resultado.OutputPaths[0]) +
+                    " con " +
+                    resultado.ExtractedPageCount.ToString(
+                        System.Globalization.CultureInfo.CurrentCulture) +
+                    (resultado.ExtractedPageCount == 1
+                        ? " página."
+                        : " páginas.") +
+                    " El original no se ha modificado.";
+                OpenPdfTabs(resultado.OutputPaths);
+                return;
+            }
+
+            documentLabel.Text =
+                "Creados " +
+                resultado.OutputPaths.Count.ToString(
+                    System.Globalization.CultureInfo.CurrentCulture) +
+                " archivos junto al original, que no se ha modificado.";
+            OfferToShowInExplorer(resultado.OutputPaths);
+        }
+
+        /// <summary>
+        /// Al dividir salen muchos archivos: en vez de abrir treinta
+        /// pestañas, se ofrece verlos en la carpeta.
+        /// </summary>
+        private void OfferToShowInExplorer(IList<string> paths)
+        {
+            if (paths == null || paths.Count == 0)
+            {
+                return;
+            }
+
+            var respuesta = MessageBox.Show(
+                this,
+                "Se han creado " +
+                paths.Count.ToString(System.Globalization.CultureInfo.CurrentCulture) +
+                " archivos junto al original.\r\n\r\n" +
+                "¿Quieres verlos en la carpeta?",
+                "Dividir el documento",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Information);
+            if (respuesta != DialogResult.Yes)
+            {
+                return;
+            }
+
+            try
+            {
+                System.Diagnostics.Process.Start(
+                    "explorer.exe",
+                    "/select,\"" + Path.GetFullPath(paths[0]) + "\"");
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("No se pudo abrir el Explorador: " + ex);
             }
         }
 
