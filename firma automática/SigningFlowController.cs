@@ -267,21 +267,77 @@ namespace FirmaAutomatica
             return outputPath;
         }
 
+        /// <summary>
+        /// Elige como firmar con la clave privada del certificado.
+        ///
+        /// El camino de siempre es <c>certificate.PrivateKey</c>, que solo
+        /// sirve para claves guardadas en un proveedor CSP clasico. Con un
+        /// certificado cuya clave esta en CNG —los que instalan hoy la FNMT,
+        /// el DNIe y casi cualquier token— esa propiedad NO devuelve null:
+        /// LANZA "Se ha especificado un tipo de proveedor no valido", asi que
+        /// ni siquiera se llegaba a los caminos de reserva de abajo.
+        ///
+        /// Se mantiene ese camino intacto y por delante, porque es el que
+        /// funciona con los certificados que ya se usan. Solo cuando lanza se
+        /// pasa a GetRSAPrivateKey(), que sirve para los dos tipos.
+        /// </summary>
         private static IExternalSignature CreateSignature(X509Certificate2 certificate)
         {
-            var rsa = certificate.PrivateKey as RSACryptoServiceProvider;
-            if (rsa != null)
+            try
             {
-                return new AsymmetricAlgorithmSignature(CreateSha256CompatibleRsa(rsa), DigestAlgorithms.SHA256);
+                var rsa = certificate.PrivateKey as RSACryptoServiceProvider;
+                if (rsa != null)
+                {
+                    return new AsymmetricAlgorithmSignature(CreateSha256CompatibleRsa(rsa), DigestAlgorithms.SHA256);
+                }
+
+                var dsa = certificate.PrivateKey as DSACryptoServiceProvider;
+                if (dsa != null)
+                {
+                    return new AsymmetricAlgorithmSignature(dsa);
+                }
+            }
+            catch (CryptographicException ex)
+            {
+                AppLog.Write(
+                    "La clave privada no se puede abrir por el camino " +
+                    "clasico; se intenta con CNG: " + ex.Message);
             }
 
-            var dsa = certificate.PrivateKey as DSACryptoServiceProvider;
-            if (dsa != null)
+            var cng = CreateCngSignature(certificate);
+            if (cng != null)
             {
-                return new AsymmetricAlgorithmSignature(dsa);
+                return cng;
             }
 
             return new X509Certificate2Signature(certificate, DigestAlgorithms.SHA256);
+        }
+
+        /// <summary>
+        /// Firma con la clave tal como la entrega Windows, sea CSP o CNG.
+        /// Devuelve null si tampoco por aqui hay clave utilizable, para que
+        /// el llamante siga con su ultimo recurso.
+        /// </summary>
+        private static IExternalSignature CreateCngSignature(
+            X509Certificate2 certificate)
+        {
+            try
+            {
+                var rsa = certificate.GetRSAPrivateKey();
+                if (rsa != null)
+                {
+                    AppLog.Write(
+                        "Firmando con la clave privada RSA moderna (CNG).");
+                    return new PdfModernRsaSignature(rsa);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write(
+                    "No se pudo obtener la clave privada moderna: " + ex);
+            }
+
+            return null;
         }
 
         private static SignatureAppearanceProfile BuildSignatureProfile(X509Certificate2 certificate)
