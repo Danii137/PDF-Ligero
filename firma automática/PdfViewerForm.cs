@@ -103,6 +103,7 @@ namespace FirmaAutomatica
         private readonly ToolStripMenuItem cropMenuItem;
         private readonly ToolStripMenuItem stampMenuItem;
         private readonly ToolStripMenuItem signatureReportMenuItem;
+        private readonly ToolStripMenuItem attachmentsMenuItem;
         private readonly ToolStripMenuItem exportImagesMenuItem;
         private readonly ToolStripMenuItem exportTextMenuItem;
         private readonly ToolStripMenuItem shrinkMenuItem;
@@ -786,6 +787,10 @@ namespace FirmaAutomatica
                 moreMenu,
                 "Firmas del documento…",
                 delegate { ShowSignatureReport(); });
+            attachmentsMenuItem = AddMenuItem(
+                moreMenu,
+                "Archivos adjuntos…",
+                delegate { ShowAttachments(); });
 
             var exportSubmenu = new ToolStripMenuItem("Exportar")
             {
@@ -9546,6 +9551,7 @@ namespace FirmaAutomatica
                 !comparisonActive &&
                 !IsPageStructureOperationInProgress;
             signatureReportMenuItem.Enabled = hasLoadedDocument;
+            attachmentsMenuItem.Enabled = hasLoadedDocument;
             duplicatePageMenuItem.Enabled = canEditDocument;
             blankPageMenuItem.Enabled = canEditDocument;
             cropMenuItem.Enabled = canEditDocument;
@@ -10073,6 +10079,73 @@ namespace FirmaAutomatica
                         null,
                         CancellationToken.None);
                 });
+        }
+
+        /// <summary>
+        /// Los archivos que lleva dentro el PDF. Si desde ahi se pide
+        /// adjuntar algo, se aplica como revision recuperable y se vuelve a
+        /// abrir el cuadro con la lista ya actualizada.
+        /// </summary>
+        private void ShowAttachments()
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null ||
+                string.IsNullOrEmpty(workspace.ContentPath))
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            CancelRectangleZoom(workspace);
+            IList<string> paraAdjuntar = null;
+            using (var ventana = new PdfAttachmentsForm(
+                workspace.ContentPath,
+                workspace.DisplayName))
+            {
+                if (ventana.ShowDialog(this) == DialogResult.Yes)
+                {
+                    paraAdjuntar = ventana.FilesToAttach;
+                }
+            }
+
+            if (paraAdjuntar == null || paraAdjuntar.Count == 0)
+            {
+                return;
+            }
+
+            var cuantos = paraAdjuntar.Count;
+            ApplyPageToolRevision(
+                "Adjuntar archivos",
+                "Metiendo los archivos dentro del PDF…",
+                cuantos == 1
+                    ? "Archivo adjuntado"
+                    : cuantos.ToString(
+                        System.Globalization.CultureInfo.CurrentCulture) +
+                        " archivos adjuntados",
+                cuantos == 1
+                    ? "Archivo adjuntado. El original no se ha modificado."
+                    : "Archivos adjuntados. El original no se ha modificado.",
+                delegate(string origen, string destino)
+                {
+                    PdfAttachmentService.Add(
+                        origen,
+                        destino,
+                        paraAdjuntar,
+                        CancellationToken.None);
+                });
+
+            // Se vuelve a abrir para que se vea lo que acaba de entrar.
+            var actualizado = GetLoadedActiveWorkspace();
+            if (actualizado != null &&
+                !string.IsNullOrEmpty(actualizado.ContentPath))
+            {
+                using (var ventana = new PdfAttachmentsForm(
+                    actualizado.ContentPath,
+                    actualizado.DisplayName))
+                {
+                    ventana.ShowDialog(this);
+                }
+            }
         }
 
         /// <summary>
