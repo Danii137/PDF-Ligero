@@ -96,6 +96,7 @@ namespace FirmaAutomatica
         private readonly ToolStripMenuItem ocrMenuItem;
         private readonly ToolStripMenuItem organizePagesMenuItem;
         private readonly ToolStripMenuItem extractPagesMenuItem;
+        private readonly ToolStripMenuItem shrinkMenuItem;
         private readonly ToolStripMenuItem editBookmarksMenuItem;
         private readonly ToolStripMenuItem compareMenuItem;
         private readonly ToolStripMenuItem measureMenuItem;
@@ -699,6 +700,10 @@ namespace FirmaAutomatica
                 moreMenu,
                 "Extraer o dividir páginas…",
                 delegate { ExtractOrSplitPages(); });
+            shrinkMenuItem = AddMenuItem(
+                moreMenu,
+                "Reducir el tamaño…",
+                delegate { ShrinkActiveDocument(); });
             editBookmarksMenuItem = AddMenuItem(
                 moreMenu,
                 "Editar marcadores…        Ctrl+Mayús+B",
@@ -9248,6 +9253,10 @@ namespace FirmaAutomatica
                 hasLoadedDocument &&
                 !comparisonActive &&
                 !IsPageStructureOperationInProgress;
+            shrinkMenuItem.Enabled =
+                hasLoadedDocument &&
+                !comparisonActive &&
+                !IsPageStructureOperationInProgress;
             editBookmarksMenuItem.Enabled = canEditDocument;
             compareMenuItem.Text = comparisonActive
                 ? "Cerrar comparación              Esc"
@@ -9553,6 +9562,182 @@ namespace FirmaAutomatica
                     System.Globalization.CultureInfo.CurrentCulture) +
                 " archivos junto al original, que no se ha modificado.";
             OfferToShowInExplorer(resultado.OutputPaths);
+        }
+
+        /// <summary>
+        /// Crea una copia mas ligera para poder enviarla. El documento
+        /// abierto no se toca.
+        /// </summary>
+        private void ShrinkActiveDocument()
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null ||
+                workspace.Document == null ||
+                string.IsNullOrEmpty(workspace.ContentPath))
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            if (IsPageStructureOperationInProgress)
+            {
+                documentLabel.Text =
+                    "Ya hay otra edición en curso. Espera un momento…";
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            CancelRectangleZoom(workspace);
+            var origen = workspace.ContentPath;
+            long tamanoActual;
+            try
+            {
+                tamanoActual = new FileInfo(origen).Length;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("No se pudo leer el tamaño del PDF: " + ex);
+                return;
+            }
+
+            PdfShrinkSettings ajustes;
+            using (var opciones = new PdfShrinkForm(tamanoActual))
+            {
+                if (opciones.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                ajustes = opciones.Settings;
+            }
+
+            var propuesta = PdfShrinkService.SuggestOutputPath(origen);
+            string destino;
+            using (var guardar = new SaveFileDialog())
+            {
+                guardar.Title = "Guardar la copia reducida";
+                guardar.Filter = "Documentos PDF (*.pdf)|*.pdf";
+                guardar.DefaultExt = "pdf";
+                guardar.AddExtension = true;
+                guardar.OverwritePrompt = true;
+                guardar.InitialDirectory = Path.GetDirectoryName(propuesta);
+                guardar.FileName = Path.GetFileName(propuesta);
+                if (guardar.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                destino = guardar.FileName;
+            }
+
+            if (string.Equals(
+                    Path.GetFullPath(destino),
+                    Path.GetFullPath(origen),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show(
+                    this,
+                    "Elige otro nombre: ese es el PDF que está abierto.",
+                    "Reducir el tamaño",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            try
+            {
+                if (File.Exists(destino))
+                {
+                    File.Delete(destino);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write(
+                    "No se pudo reemplazar el archivo elegido: " + ex);
+                ShowPdfProblem(
+                    "Reducir el tamaño",
+                    "No se pudo reemplazar ese archivo.",
+                    "Puede que esté abierto en otro programa.",
+                    ex,
+                    destino);
+                return;
+            }
+
+            PdfShrinkResult resultado = null;
+            Exception fallo = null;
+            using (var progreso = new PdfBackgroundOperationForm(
+                "Reducir el tamaño",
+                "Reduciendo el PDF…",
+                delegate
+                {
+                    try
+                    {
+                        resultado = PdfShrinkService.Shrink(
+                            origen,
+                            destino,
+                            ajustes,
+                            null,
+                            CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        fallo = ex;
+                    }
+                }))
+            {
+                progreso.Run(this);
+            }
+
+            if (fallo != null)
+            {
+                AppLog.Write("No se pudo reducir el PDF: " + fallo);
+                ShowPdfProblem(
+                    "Reducir el tamaño",
+                    "No se pudo reducir el PDF.",
+                    "El PDF abierto no se ha modificado.",
+                    fallo,
+                    origen);
+                return;
+            }
+
+            if (resultado == null)
+            {
+                return;
+            }
+
+            if (!resultado.GotSmaller)
+            {
+                // No se deja una copia que no mejora nada: seria peor que no
+                // hacer nada, y encima ocuparia sitio.
+                documentLabel.Text =
+                    "Este PDF ya está todo lo apretado que se puede.";
+                MessageBox.Show(
+                    this,
+                    "No se ha podido reducir: el archivo ya está " +
+                    "optimizado, o lo que ocupa no son imágenes sino texto " +
+                    "y líneas, que no se pueden encoger sin estropearlos." +
+                    "\r\n\r\nNo se ha creado ninguna copia.",
+                    "Reducir el tamaño",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            documentLabel.Text =
+                "Creado " + Path.GetFileName(resultado.OutputPath) + ": " +
+                PdfShrinkForm.DescribeSize(resultado.OriginalBytes) + " → " +
+                PdfShrinkForm.DescribeSize(resultado.ResultBytes) + " (" +
+                resultado.SavedPercent.ToString(
+                    System.Globalization.CultureInfo.CurrentCulture) +
+                "% menos). El original no se ha modificado.";
+            if (resultado.DigitalSignaturesInvalidated)
+            {
+                documentLabel.Text +=
+                    " " + PdfShrinkService.DigitalSignatureInvalidationWarning;
+            }
+
+            OpenPdfTabs(new[] { resultado.OutputPath });
         }
 
         /// <summary>
