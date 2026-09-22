@@ -96,6 +96,9 @@ namespace FirmaAutomatica
         private readonly ToolStripMenuItem ocrMenuItem;
         private readonly ToolStripMenuItem organizePagesMenuItem;
         private readonly ToolStripMenuItem extractPagesMenuItem;
+        private readonly ToolStripMenuItem duplicatePageMenuItem;
+        private readonly ToolStripMenuItem blankPageMenuItem;
+        private readonly ToolStripMenuItem cropMenuItem;
         private readonly ToolStripMenuItem stampMenuItem;
         private readonly ToolStripMenuItem signatureReportMenuItem;
         private readonly ToolStripMenuItem exportImagesMenuItem;
@@ -704,6 +707,34 @@ namespace FirmaAutomatica
                 moreMenu,
                 "Extraer o dividir páginas…",
                 delegate { ExtractOrSplitPages(); });
+
+            var pageToolsSubmenu = new ToolStripMenuItem("Esta página")
+            {
+                Padding = new Padding(10, 4, 10, 4)
+            };
+            duplicatePageMenuItem = new ToolStripMenuItem("Duplicarla")
+            {
+                Padding = new Padding(10, 4, 10, 4)
+            };
+            duplicatePageMenuItem.Click +=
+                delegate { DuplicateCurrentPage(); };
+            blankPageMenuItem = new ToolStripMenuItem(
+                "Meter una hoja en blanco delante")
+            {
+                Padding = new Padding(10, 4, 10, 4)
+            };
+            blankPageMenuItem.Click +=
+                delegate { InsertBlankPageHere(); };
+            cropMenuItem = new ToolStripMenuItem(
+                "Recortar los márgenes del documento…")
+            {
+                Padding = new Padding(10, 4, 10, 4)
+            };
+            cropMenuItem.Click += delegate { CropPagesToContent(); };
+            pageToolsSubmenu.DropDownItems.Add(duplicatePageMenuItem);
+            pageToolsSubmenu.DropDownItems.Add(blankPageMenuItem);
+            pageToolsSubmenu.DropDownItems.Add(cropMenuItem);
+            moreMenu.Items.Add(pageToolsSubmenu);
             stampMenuItem = AddMenuItem(
                 moreMenu,
                 "Marca de agua y numeración…",
@@ -9293,6 +9324,9 @@ namespace FirmaAutomatica
                 !comparisonActive &&
                 !IsPageStructureOperationInProgress;
             signatureReportMenuItem.Enabled = hasLoadedDocument;
+            duplicatePageMenuItem.Enabled = canEditDocument;
+            blankPageMenuItem.Enabled = canEditDocument;
+            cropMenuItem.Enabled = canEditDocument;
             exportImagesMenuItem.Enabled =
                 hasLoadedDocument && !comparisonActive;
             exportTextMenuItem.Enabled = hasLoadedDocument;
@@ -9605,6 +9639,218 @@ namespace FirmaAutomatica
                     System.Globalization.CultureInfo.CurrentCulture) +
                 " archivos junto al original, que no se ha modificado.";
             OfferToShowInExplorer(resultado.OutputPaths);
+        }
+
+        /// <summary>
+        /// Aplica al documento abierto una operacion que produce un PDF
+        /// nuevo, como una revision recuperable con Ctrl+Z. Es el camino
+        /// comun de duplicar pagina, hoja en blanco y recortar.
+        /// </summary>
+        private void ApplyPageToolRevision(
+            string titulo,
+            string mensajeProgreso,
+            string descripcionRevision,
+            string mensajeFinal,
+            Action<string, string> operacion)
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null ||
+                workspace.Document == null ||
+                workspace.EditSession == null ||
+                workspace.EditHistoryFaulted ||
+                workspace.IsPasswordProtected ||
+                string.IsNullOrEmpty(workspace.ContentPath))
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            if (IsPageStructureOperationInProgress)
+            {
+                documentLabel.Text =
+                    "Ya hay otra edición en curso. Espera un momento…";
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            CancelRectangleZoom(workspace);
+            var editSession = workspace.EditSession;
+            var sourcePath = workspace.ContentPath;
+            var preferredPageIndex = Math.Max(
+                0,
+                workspace.Viewer.Renderer.Page);
+            string outputPath = null;
+            try
+            {
+                long estimado;
+                try
+                {
+                    estimado = checked(
+                        new FileInfo(sourcePath).Length +
+                        (2L * 1024L * 1024L));
+                }
+                catch (Exception)
+                {
+                    estimado = 0L;
+                }
+
+                outputPath = editSession.ReserveRevisionPath(estimado);
+                Exception fallo = null;
+                var destino = outputPath;
+                using (var progreso = new PdfBackgroundOperationForm(
+                    titulo,
+                    mensajeProgreso,
+                    delegate
+                    {
+                        try
+                        {
+                            operacion(sourcePath, destino);
+                        }
+                        catch (Exception ex)
+                        {
+                            fallo = ex;
+                        }
+                    }))
+                {
+                    progreso.Run(this);
+                }
+
+                if (fallo != null)
+                {
+                    throw fallo;
+                }
+
+                if (!File.Exists(outputPath))
+                {
+                    throw new InvalidDataException(
+                        "La revisión no se llegó a escribir.");
+                }
+
+                ApplyContentRevision(
+                    workspace,
+                    editSession,
+                    sourcePath,
+                    outputPath,
+                    preferredPageIndex,
+                    descripcionRevision,
+                    mensajeFinal);
+                outputPath = null;
+            }
+            catch (Exception ex)
+            {
+                if (!string.IsNullOrWhiteSpace(outputPath) &&
+                    !string.Equals(
+                        editSession.CurrentPath,
+                        outputPath,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    editSession.CancelReservedRevision(outputPath);
+                }
+
+                AppLog.Write("No se pudo " + titulo.ToLowerInvariant() +
+                    ": " + ex);
+                ShowPdfProblem(
+                    titulo,
+                    "No se pudo completar la operación.",
+                    "El PDF original no se ha modificado.",
+                    ex,
+                    sourcePath);
+            }
+        }
+
+        private void DuplicateCurrentPage()
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null || workspace.Document == null)
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            var pagina = Math.Max(0, workspace.Viewer.Renderer.Page) + 1;
+            ApplyPageToolRevision(
+                "Duplicar página",
+                "Duplicando la página…",
+                "Página " + pagina.ToString(
+                    System.Globalization.CultureInfo.CurrentCulture) +
+                    " duplicada",
+                "Página duplicada. El original no se ha modificado.",
+                delegate(string origen, string destino)
+                {
+                    PdfPageToolsService.DuplicatePage(
+                        origen,
+                        destino,
+                        pagina,
+                        CancellationToken.None);
+                });
+        }
+
+        private void InsertBlankPageHere()
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null || workspace.Document == null)
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            var pagina = Math.Max(0, workspace.Viewer.Renderer.Page) + 1;
+            ApplyPageToolRevision(
+                "Insertar hoja en blanco",
+                "Insertando la hoja…",
+                "Hoja en blanco antes de la página " +
+                    pagina.ToString(
+                        System.Globalization.CultureInfo.CurrentCulture),
+                "Hoja en blanco insertada. El original no se ha modificado.",
+                delegate(string origen, string destino)
+                {
+                    PdfPageToolsService.InsertBlankPage(
+                        origen,
+                        destino,
+                        pagina,
+                        CancellationToken.None);
+                });
+        }
+
+        private void CropPagesToContent()
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null || workspace.Document == null)
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            var respuesta = MessageBox.Show(
+                this,
+                "Se ajustará el borde de todas las páginas a lo que hay " +
+                "dibujado, dejando 5 mm de margen.\r\n\r\n" +
+                "El contenido no se borra: sigue debajo y se puede volver " +
+                "atrás con Ctrl+Z.",
+                "Recortar los márgenes",
+                MessageBoxButtons.OKCancel,
+                MessageBoxIcon.Information);
+            if (respuesta != DialogResult.OK)
+            {
+                return;
+            }
+
+            ApplyPageToolRevision(
+                "Recortar los márgenes",
+                "Buscando el contenido de cada página…",
+                "Márgenes recortados",
+                "Márgenes recortados. El original no se ha modificado.",
+                delegate(string origen, string destino)
+                {
+                    PdfPageToolsService.CropPages(
+                        origen,
+                        destino,
+                        null,
+                        PdfCropMode.AlContenido,
+                        5F,
+                        null,
+                        CancellationToken.None);
+                });
         }
 
         /// <summary>Saca las paginas como imagenes sueltas.</summary>
