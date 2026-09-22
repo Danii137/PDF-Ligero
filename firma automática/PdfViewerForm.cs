@@ -90,6 +90,8 @@ namespace FirmaAutomatica
         private readonly ToolStripMenuItem selectPageTextMenuItem;
         private readonly ToolStripMenuItem saveCopyMenuItem;
         private readonly ToolStripMenuItem printMenuItem;
+        private readonly ToolStripMenuItem fitPageMenuItem;
+        private readonly ToolStripMenuItem actualSizeMenuItem;
         private readonly ToolStripMenuItem fitWidthMenuItem;
         private readonly ToolStripMenuItem zoomInMenuItem;
         private readonly ToolStripMenuItem zoomOutMenuItem;
@@ -717,17 +719,28 @@ namespace FirmaAutomatica
                 "Imprimir...                  Ctrl+P",
                 PrintMenuItem_Click);
             moreMenu.Items.Add(new ToolStripSeparator());
+            fitPageMenuItem = AddMenuItem(
+                moreMenu,
+                "Ajustar la página entera        Ctrl+0",
+                delegate
+                {
+                    SetActiveZoomMode(PdfViewerZoomMode.FitBest);
+                });
             fitWidthMenuItem = AddMenuItem(
                 moreMenu,
-                "Ajustar al ancho",
+                "Ajustar al ancho                    Ctrl+2",
                 delegate { FitActiveDocumentToWidth(); });
+            actualSizeMenuItem = AddMenuItem(
+                moreMenu,
+                "Tamaño real, 100 %               Ctrl+1",
+                delegate { SetActiveZoom(1D); });
             zoomInMenuItem = AddMenuItem(
                 moreMenu,
-                "Acercar",
+                "Acercar                                 Ctrl++",
                 delegate { ZoomActiveDocument(true); });
             zoomOutMenuItem = AddMenuItem(
                 moreMenu,
-                "Alejar",
+                "Alejar                                    Ctrl+-",
                 delegate { ZoomActiveDocument(false); });
             rotateLeftMenuItem = AddMenuItem(
                 moreMenu,
@@ -3395,6 +3408,113 @@ namespace FirmaAutomatica
             }
         }
 
+
+        /// <summary>
+        /// Da el documento al visor envuelto en la capa que lo hace fluido:
+        /// guarda las paginas ya rasterizadas, prepara las de al lado y
+        /// sustituye por la version nitida cuando esta lista.
+        ///
+        /// El documento de verdad no se toca: la envoltura no lo cierra, y
+        /// todo lo demas del programa —buscar, medir, imprimir— sigue usando
+        /// workspace.Document como siempre.
+        /// </summary>
+        private void AttachDocumentToViewer(
+            PdfWorkspace workspace,
+            PdfiumDocument document)
+        {
+            if (workspace == null || workspace.Viewer == null)
+            {
+                return;
+            }
+
+            if (workspace.FluidDocument != null)
+            {
+                workspace.FluidDocument.Dispose();
+                workspace.FluidDocument = null;
+            }
+
+            if (document == null)
+            {
+                AttachDocumentToViewer(workspace, null);
+                return;
+            }
+
+            var destino = workspace;
+            var fluido = new PdfFluidDocument(
+                document,
+                delegate(int pagina)
+                {
+                    RefinePageInViewer(destino, pagina);
+                });
+            workspace.FluidDocument = fluido;
+            workspace.Viewer.Document = fluido;
+        }
+
+        /// <summary>
+        /// Una pagina ya esta preparada a su tamaño exacto: se olvida la copia
+        /// blanda que tiene el visor y se repinta. Llega desde el hilo de
+        /// preparacion, asi que hay que volver al de la interfaz.
+        /// </summary>
+        private void RefinePageInViewer(PdfWorkspace workspace, int pagina)
+        {
+            if (workspace == null ||
+                workspace.Viewer == null ||
+                workspace.Viewer.IsDisposed)
+            {
+                return;
+            }
+
+            var renderer = workspace.Viewer.Renderer;
+            if (renderer == null ||
+                renderer.IsDisposed ||
+                !renderer.IsHandleCreated)
+            {
+                return;
+            }
+
+            try
+            {
+                renderer.BeginInvoke(new Action(delegate
+                {
+                    if (renderer.IsDisposed ||
+                        workspace.IsDisposed ||
+                        workspace != activeWorkspace)
+                    {
+                        return;
+                    }
+
+                    if (PdfRendererCacheAccess.ForgetPageImage(
+                            renderer, pagina))
+                    {
+                        renderer.Invalidate();
+                    }
+                }));
+            }
+            catch (Exception)
+            {
+                // La ventana se estaba cerrando: no pasa nada, la pagina
+                // simplemente se queda como estaba.
+            }
+        }
+
+        /// <summary>
+        /// Se puede navegar y hacer zoom: con el documento cargado y sin un
+        /// modo que se quede con el raton o con el teclado.
+        /// </summary>
+        private bool CanNavigateView(PdfWorkspace workspace)
+        {
+            return workspace != null &&
+                workspace == activeWorkspace &&
+                workspace.IsLoaded &&
+                !workspace.IsDisposed &&
+                workspace.Document != null &&
+                comparisonSurface == null &&
+                !IsTextEditSelectionActive &&
+                !IsPageStructureOperationInProgress &&
+                !activatingWorkspace &&
+                !closingAll;
+        }
+
         private void FitActiveDocumentToWidth()
         {
             if (comparisonSurface != null)
@@ -3410,6 +3530,7 @@ namespace FirmaAutomatica
 
             CancelRectangleZoom(workspace);
             workspace.Viewer.ZoomMode = PdfViewerZoomMode.FitWidth;
+            ShowZoomLevelWhenSettled(workspace);
             workspace.Viewer.Focus();
         }
 
@@ -3427,16 +3548,115 @@ namespace FirmaAutomatica
             }
 
             CancelRectangleZoom(workspace);
-            if (zoomIn)
+            var renderer = workspace.Viewer.Renderer;
+            // Anclado al centro de la ventana: el zoom de menu o de teclado
+            // se acerca a lo que se esta mirando, no a otra hoja.
+            PdfZoomAnchor.Step(
+                renderer,
+                PdfZoomAnchor.CenterOf(renderer),
+                zoomIn);
+            ShowZoomLevel(workspace);
+            workspace.Viewer.Focus();
+        }
+
+        /// <summary>
+        /// Deja el aumento en un valor concreto, o vuelve a un ajuste
+        /// automatico.
+        /// </summary>
+        private void SetActiveZoomMode(PdfViewerZoomMode modo)
+        {
+            if (comparisonSurface != null)
             {
-                workspace.Viewer.Renderer.ZoomIn();
-            }
-            else
-            {
-                workspace.Viewer.Renderer.ZoomOut();
+                return;
             }
 
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null)
+            {
+                return;
+            }
+
+            CancelRectangleZoom(workspace);
+            workspace.Viewer.ZoomMode = modo;
+            ShowZoomLevelWhenSettled(workspace);
             workspace.Viewer.Focus();
+        }
+
+        private void SetActiveZoom(double zoom)
+        {
+            if (comparisonSurface != null)
+            {
+                return;
+            }
+
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null)
+            {
+                return;
+            }
+
+            CancelRectangleZoom(workspace);
+            var renderer = workspace.Viewer.Renderer;
+            PdfZoomAnchor.SetZoom(
+                renderer,
+                PdfZoomAnchor.CenterOf(renderer),
+                zoom);
+            ShowZoomLevel(workspace);
+            workspace.Viewer.Focus();
+        }
+
+        /// <summary>
+        /// Igual, pero despues de que el visor haya recalculado. Al cambiar de
+        /// modo de ajuste, el aumento no esta listo en la misma linea: leerlo
+        /// ahi daba el numero anterior.
+        /// </summary>
+        private void ShowZoomLevelWhenSettled(PdfWorkspace workspace)
+        {
+            if (workspace == null || IsDisposed)
+            {
+                return;
+            }
+
+            try
+            {
+                BeginInvoke(new Action(delegate
+                {
+                    ShowZoomLevel(workspace);
+                }));
+            }
+            catch (Exception)
+            {
+                ShowZoomLevel(workspace);
+            }
+        }
+
+        /// <summary>
+        /// Dice a cuanto se esta viendo. Sin esto no hay forma de saber si
+        /// estas al 100 % o al 240 %, que es lo primero que se mira al
+        /// comparar una medida sobre un plano.
+        /// </summary>
+        private void ShowZoomLevel(PdfWorkspace workspace)
+        {
+            if (workspace == null ||
+                workspace.Viewer == null ||
+                workspace.Viewer.IsDisposed)
+            {
+                return;
+            }
+
+            try
+            {
+                var porcentaje = (int)Math.Round(
+                    workspace.Viewer.Renderer.Zoom * 100D);
+                documentLabel.Text =
+                    "Zoom " +
+                    porcentaje.ToString(
+                        System.Globalization.CultureInfo.CurrentCulture) +
+                    " %   ·   Ctrl+rueda para acercar, Ctrl+0 para ajustar";
+            }
+            catch (Exception)
+            {
+            }
         }
 
         private void RotateActiveDocument(bool clockwise)
@@ -4324,7 +4544,7 @@ namespace FirmaAutomatica
                 DisposeWorkspaceMeasurement(workspace);
                 ClearSearchResults(workspace);
                 workspace.Thumbnails.ClearDocument();
-                workspace.Viewer.Document = null;
+                AttachDocumentToViewer(workspace, null);
                 viewerDetached = true;
 
                 workspace.Document = nextDocument;
@@ -4334,7 +4554,7 @@ namespace FirmaAutomatica
                 // revision anterior: si no se tiran, se selecciona donde ya
                 // no hay nada.
                 InvalidateTextSelection(workspace);
-                workspace.Viewer.Document = workspace.Document;
+                AttachDocumentToViewer(workspace, workspace.Document);
                 viewerDetached = false;
                 workspace.Viewer.DefaultDocumentName = workspace.DisplayName;
                 workspace.Thumbnails.LoadDocument(workspace.Document);
@@ -4394,10 +4614,10 @@ namespace FirmaAutomatica
                     try
                     {
                         workspace.Thumbnails.ClearDocument();
-                        workspace.Viewer.Document = null;
+                        AttachDocumentToViewer(workspace, null);
                         workspace.Document = previousDocument;
                         workspace.ContentPath = previousContentPath;
-                        workspace.Viewer.Document = previousDocument;
+                        AttachDocumentToViewer(workspace, previousDocument);
                         workspace.Thumbnails.LoadDocument(previousDocument);
                         previousDocument = null;
                     }
@@ -4551,6 +4771,19 @@ namespace FirmaAutomatica
                 AllowDrop = true,
                 TabStop = true
             };
+            // Ctrl+rueda anclado al cursor y los atajos de zoom de siempre.
+            var destinoNavegacion = workspace;
+            workspace.Navigation = new PdfViewNavigationController(
+                workspace.Viewer.Renderer,
+                delegate { return CanNavigateView(destinoNavegacion); },
+                delegate { ShowZoomLevel(destinoNavegacion); },
+                delegate
+                {
+                    SetActiveZoomMode(PdfViewerZoomMode.FitBest);
+                },
+                delegate { FitActiveDocumentToWidth(); },
+                delegate { SetActiveZoom(1D); });
+
             // La seleccion de texto se crea antes que el zoom por rectangulo
             // porque este le pregunta si hay texto bajo el punto para cederle
             // el arrastre.
@@ -4967,7 +5200,7 @@ namespace FirmaAutomatica
                 nextDocument = null;
                 workspace.IsPasswordProtected = openedWithPassword;
 
-                workspace.Viewer.Document = workspace.Document;
+                AttachDocumentToViewer(workspace, workspace.Document);
                 workspace.Viewer.DefaultDocumentName = workspace.DisplayName;
                 workspace.Viewer.ZoomMode = PdfViewerZoomMode.FitWidth;
                 workspace.Thumbnails.LoadDocument(workspace.Document);
@@ -5464,6 +5697,18 @@ namespace FirmaAutomatica
             {
                 workspace.TextSelection.Dispose();
                 workspace.TextSelection = null;
+            }
+
+            if (workspace.Navigation != null)
+            {
+                workspace.Navigation.Dispose();
+                workspace.Navigation = null;
+            }
+
+            if (workspace.FluidDocument != null)
+            {
+                workspace.FluidDocument.Dispose();
+                workspace.FluidDocument = null;
             }
 
             workspace.Viewer.Renderer.Scroll -= workspace.ScrollHandler;
@@ -9525,6 +9770,10 @@ namespace FirmaAutomatica
             printMenuItem.Enabled =
                 hasLoadedDocument &&
                 !IsPageStructureOperationInProgress;
+            fitPageMenuItem.Enabled =
+                hasLoadedDocument && !comparisonActive;
+            actualSizeMenuItem.Enabled =
+                hasLoadedDocument && !comparisonActive;
             fitWidthMenuItem.Enabled =
                 hasLoadedDocument && !comparisonActive;
             zoomInMenuItem.Enabled =
@@ -11579,6 +11828,13 @@ namespace FirmaAutomatica
             public PdfViewer Viewer;
             public PdfiumDocument Document;
             public PdfRectangleZoomController RectangleZoom;
+            public PdfViewNavigationController Navigation;
+            /// <summary>
+            /// Envoltura que hace fluido el visor: guarda las paginas ya
+            /// rasterizadas y prepara las de al lado. Es lo que se le da al
+            /// visor; el documento de verdad sigue siendo Document.
+            /// </summary>
+            public PdfFluidDocument FluidDocument;
             public PdfTextSelectionController TextSelection;
             public PdfTextEditSelectionController TextEditSelection;
             public PdfMeasurementController Measurement;
