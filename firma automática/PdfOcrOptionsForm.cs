@@ -35,6 +35,9 @@ namespace FirmaAutomatica
         private readonly RadioButton selectedPagesRadioButton;
         private readonly RadioButton allPagesRadioButton;
         private readonly Label scopeSummaryLabel;
+        private readonly ComboBox languageSelector;
+        private readonly ComboBox layoutSelector;
+        private readonly ComboBox qualitySelector;
         private readonly CheckBox skipTextCheckBox;
         private readonly CheckBox autoOrientCheckBox;
         private readonly CheckBox autoDeskewCheckBox;
@@ -60,7 +63,7 @@ namespace FirmaAutomatica
             AppBranding.ApplyWindowIcon(this);
             AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(492, 512);
+            ClientSize = new Size(492, 585);
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -185,7 +188,7 @@ namespace FirmaAutomatica
             contentLayout.RowStyles.Add(
                 new RowStyle(SizeType.Absolute, 150F));
             contentLayout.RowStyles.Add(
-                new RowStyle(SizeType.Absolute, 161F));
+                new RowStyle(SizeType.Absolute, 234F));
             contentLayout.RowStyles.Add(
                 new RowStyle(SizeType.Percent, 100F));
 
@@ -253,36 +256,54 @@ namespace FirmaAutomatica
             var optionsPanel = CreateSectionPanel();
             var optionsCaptionLabel = CreateSectionCaption(
                 "RECONOCIMIENTO / AJUSTES");
-            var languageLabel = new Label
+
+            var languageCaption = CreateFieldCaption("IDIOMA", 33);
+            languageSelector = CreateFieldSelector(33);
+            languageSelector.AccessibleName = "Idioma de reconocimiento";
+            foreach (var option in BuildLanguageOptions())
             {
-                Left = 15,
-                Top = 31,
-                Width = 410,
-                Height = 22,
-                Text = "IDIOMA   Español + inglés   ·   spa + eng",
-                ForeColor = BodyColor,
-                Font = CreateArchitecturalFont(8.25f, true),
-                TextAlign = ContentAlignment.MiddleLeft,
-                AccessibleName = "Idioma de reconocimiento: español e inglés"
-            };
+                languageSelector.Items.Add(option);
+            }
+
+            languageSelector.SelectedIndex = 0;
+
+            var layoutCaption = CreateFieldCaption("COLUMNAS", 65);
+            layoutSelector = CreateFieldSelector(65);
+            layoutSelector.AccessibleName = "Reparto de la página en columnas";
+            layoutSelector.Items.Add("Detectar automáticamente");
+            layoutSelector.Items.Add("Una sola columna");
+            layoutSelector.SelectedIndex = 0;
+            layoutSelector.AccessibleDescription =
+                "El modo automático lee bien los documentos a dos columnas. " +
+                "Elige una sola columna si parte el texto donde no debe.";
+
+            var qualityCaption = CreateFieldCaption("CALIDAD", 97);
+            qualitySelector = CreateFieldSelector(97);
+            qualitySelector.AccessibleName = "Calidad del reconocimiento";
+            qualitySelector.Items.Add("Normal · 300 ppp");
+            qualitySelector.Items.Add("Alta · 400 ppp   (más lenta)");
+            qualitySelector.Items.Add("Rápida · 200 ppp");
+            qualitySelector.SelectedIndex = 0;
+            qualitySelector.AccessibleDescription =
+                "Sube la calidad si el escaneo trae letra muy pequeña.";
 
             skipTextCheckBox = CreateOptionCheckBox(
                 "&Omitir páginas que ya tienen texto útil");
-            skipTextCheckBox.Top = 58;
+            skipTextCheckBox.Top = 131;
             skipTextCheckBox.Checked = true;
             skipTextCheckBox.AccessibleDescription =
                 "Evita reprocesar páginas que ya se pueden buscar.";
 
             autoOrientCheckBox = CreateOptionCheckBox(
                 "Detectar &orientación automáticamente");
-            autoOrientCheckBox.Top = 87;
+            autoOrientCheckBox.Top = 160;
             autoOrientCheckBox.Checked = true;
             autoOrientCheckBox.AccessibleDescription =
                 "Detecta giros de 90, 180 o 270 grados.";
 
             autoDeskewCheckBox = CreateOptionCheckBox(
                 "Corregir &inclinaciones leves");
-            autoDeskewCheckBox.Top = 116;
+            autoDeskewCheckBox.Top = 189;
             autoDeskewCheckBox.Checked = true;
             autoDeskewCheckBox.AccessibleDescription =
                 "Endereza ligeramente páginas escaneadas que estén torcidas.";
@@ -290,9 +311,17 @@ namespace FirmaAutomatica
             skipTextCheckBox.CheckedChanged += OptionChanged;
             autoOrientCheckBox.CheckedChanged += OptionChanged;
             autoDeskewCheckBox.CheckedChanged += OptionChanged;
+            languageSelector.SelectedIndexChanged += OptionChanged;
+            layoutSelector.SelectedIndexChanged += OptionChanged;
+            qualitySelector.SelectedIndexChanged += OptionChanged;
 
             optionsPanel.Controls.Add(optionsCaptionLabel);
-            optionsPanel.Controls.Add(languageLabel);
+            optionsPanel.Controls.Add(languageCaption);
+            optionsPanel.Controls.Add(languageSelector);
+            optionsPanel.Controls.Add(layoutCaption);
+            optionsPanel.Controls.Add(layoutSelector);
+            optionsPanel.Controls.Add(qualityCaption);
+            optionsPanel.Controls.Add(qualitySelector);
             optionsPanel.Controls.Add(skipTextCheckBox);
             optionsPanel.Controls.Add(autoOrientCheckBox);
             optionsPanel.Controls.Add(autoDeskewCheckBox);
@@ -515,9 +544,31 @@ namespace FirmaAutomatica
                 return false;
             }
 
+            var language = "spa+eng";
+            var selectedLanguage =
+                languageSelector.SelectedItem as LanguageOption;
+            if (selectedLanguage != null)
+            {
+                language = selectedLanguage.Code;
+            }
+
+            var dpi = 300;
+            if (qualitySelector.SelectedIndex == 1)
+            {
+                dpi = 400;
+            }
+            else if (qualitySelector.SelectedIndex == 2)
+            {
+                dpi = 200;
+            }
+
             var nextSettings = new PdfOcrSettings
             {
-                Language = "spa+eng",
+                Language = language,
+                OcrDpi = dpi,
+                Layout = layoutSelector.SelectedIndex == 1
+                    ? PdfOcrLayout.UnaColumna
+                    : PdfOcrLayout.Automatico,
                 AutoOrient = autoOrientCheckBox.Checked,
                 AutoDeskew = autoDeskewCheckBox.Checked,
                 ReprocessPagesWithText = !skipTextCheckBox.Checked,
@@ -549,6 +600,165 @@ namespace FirmaAutomatica
                 BackColor = DividerColor
             });
             return panel;
+        }
+
+        /// <summary>
+        /// Una opcion de idioma: lo que se lee en la lista y el codigo que
+        /// entiende Tesseract.
+        /// </summary>
+        private sealed class LanguageOption
+        {
+            public LanguageOption(string code, string caption)
+            {
+                Code = code;
+                Caption = caption;
+            }
+
+            public string Code { get; private set; }
+
+            public string Caption { get; private set; }
+
+            public override string ToString()
+            {
+                return Caption;
+            }
+        }
+
+        /// <summary>
+        /// Idiomas ofrecidos, limitados a los que el motor tiene instalados.
+        /// El primero es siempre español + inglés, que es lo que se instala
+        /// con el programa y cubre casi todo lo que llega a un estudio.
+        /// </summary>
+        private static IList<LanguageOption> BuildLanguageOptions()
+        {
+            var nombres = new Dictionary<string, string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                { "spa", "Español" },
+                { "eng", "Inglés" },
+                { "cat", "Catalán" },
+                { "glg", "Gallego" },
+                { "eus", "Euskera" },
+                { "fra", "Francés" },
+                { "por", "Portugués" },
+                { "ita", "Italiano" },
+                { "deu", "Alemán" }
+            };
+
+            var instalados = new List<string>();
+            try
+            {
+                var availability = PdfOcrService.GetAvailability();
+                if (availability != null &&
+                    availability.AvailableLanguages != null)
+                {
+                    instalados.AddRange(availability.AvailableLanguages);
+                }
+            }
+            catch
+            {
+                // Sin motor no hay lista: se ofrece lo que se distribuye y
+                // el servicio ya avisa aparte si Tesseract no responde.
+            }
+
+            var disponible = new HashSet<string>(
+                instalados,
+                StringComparer.OrdinalIgnoreCase);
+            var opciones = new List<LanguageOption>();
+            opciones.Add(
+                new LanguageOption(
+                    "spa+eng",
+                    "Español + inglés   ·   spa + eng"));
+
+            foreach (var codigo in new[] { "spa", "eng" })
+            {
+                opciones.Add(
+                    new LanguageOption(
+                        codigo,
+                        nombres[codigo] + "   ·   " + codigo));
+            }
+
+            foreach (var codigo in instalados)
+            {
+                if (string.Equals(codigo, "osd", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(codigo, "spa", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(codigo, "eng", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string nombre;
+                if (!nombres.TryGetValue(codigo, out nombre))
+                {
+                    nombre = codigo;
+                }
+
+                opciones.Add(
+                    new LanguageOption(
+                        codigo,
+                        nombre + "   ·   " + codigo));
+            }
+
+            // Si el motor declara idiomas, se descartan los que no tenga.
+            if (disponible.Count > 0)
+            {
+                var filtradas = new List<LanguageOption>();
+                foreach (var opcion in opciones)
+                {
+                    var partes = opcion.Code.Split('+');
+                    var completo = true;
+                    foreach (var parte in partes)
+                    {
+                        if (!disponible.Contains(parte))
+                        {
+                            completo = false;
+                            break;
+                        }
+                    }
+
+                    if (completo)
+                    {
+                        filtradas.Add(opcion);
+                    }
+                }
+
+                if (filtradas.Count > 0)
+                {
+                    return filtradas;
+                }
+            }
+
+            return opciones;
+        }
+
+        private static Label CreateFieldCaption(string text, int top)
+        {
+            return new Label
+            {
+                Left = 15,
+                Top = top + 4,
+                Width = 96,
+                Height = 20,
+                Text = text,
+                ForeColor = AccentTextColor,
+                Font = CreateArchitecturalFont(7.5f, true),
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+        }
+
+        private static ComboBox CreateFieldSelector(int top)
+        {
+            return new ComboBox
+            {
+                Left = 113,
+                Top = top,
+                Width = 312,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = PaperColor,
+                ForeColor = TitleColor,
+                Font = CreateUiFont(9.1f, FontStyle.Regular)
+            };
         }
 
         private static Label CreateSectionCaption(string text)

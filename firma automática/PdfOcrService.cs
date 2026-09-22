@@ -19,24 +19,60 @@ using PdfTextExtractor =
 
 namespace FirmaAutomatica
 {
+    /// <summary>
+    /// Como se reparte la pagina en bloques de texto antes de leerla.
+    /// </summary>
+    internal enum PdfOcrLayout
+    {
+        /// <summary>
+        /// Tesseract decide: detecta columnas, tablas y bloques sueltos.
+        /// Es lo correcto para revistas, boletines y tablas.
+        /// </summary>
+        Automatico,
+
+        /// <summary>
+        /// Una sola columna de arriba abajo, admitiendo cuerpos distintos
+        /// entre titulo y parrafo. Util en memorias, contratos e informes
+        /// cuando el modo automatico se empena en partir la pagina.
+        /// </summary>
+        UnaColumna
+    }
+
     internal sealed class PdfOcrSettings
     {
         public PdfOcrSettings()
         {
             Language = "spa+eng";
-            OcrDpi = 240;
+            // 300 ppp es la resolucion para la que esta entrenado el motor
+            // LSTM de Tesseract. Con 240 se perdian tildes y se confundian
+            // cifras en cuerpos de 8-10 puntos, que es lo que traen los pies
+            // de plano y las notas al pie.
+            OcrDpi = 300;
             AnalysisDpi = 120;
             AutoOrient = true;
             AutoDeskew = true;
             ReprocessPagesWithText = false;
             MinimumExistingTextCharacters = 24;
             MaximumPixelsPerPage = 16000000;
+            Layout = PdfOcrLayout.Automatico;
+            MinimumWordConfidence = 35F;
             SelectedPages = null;
         }
 
         public string Language { get; set; }
 
         public int OcrDpi { get; set; }
+
+        /// <summary>Reparto de la pagina en bloques de texto.</summary>
+        public PdfOcrLayout Layout { get; set; }
+
+        /// <summary>
+        /// Confianza minima, de 0 a 100, para que una palabra entre en la
+        /// capa de texto. Por debajo de 35 Tesseract devuelve casi siempre
+        /// manchas del escaneo leidas como letras sueltas: ensucian la
+        /// busqueda y desplazan los rectangulos del subrayador.
+        /// </summary>
+        public float MinimumWordConfidence { get; set; }
 
         public int AnalysisDpi { get; set; }
 
@@ -61,7 +97,11 @@ namespace FirmaAutomatica
             copy.Language = string.IsNullOrWhiteSpace(Language)
                 ? "spa+eng"
                 : Language.Trim();
-            copy.OcrDpi = Math.Max(150, Math.Min(400, OcrDpi));
+            copy.OcrDpi = Math.Max(150, Math.Min(600, OcrDpi));
+            copy.Layout = Layout;
+            copy.MinimumWordConfidence = Math.Max(
+                0F,
+                Math.Min(100F, MinimumWordConfidence));
             copy.AnalysisDpi = Math.Max(
                 72,
                 Math.Min(180, AnalysisDpi));
@@ -372,6 +412,15 @@ namespace FirmaAutomatica
         // many readable lines commonly report 3-8 even when the direction is
         // unambiguous. Below 3 the service leaves the page untouched so it can
         // be corrected manually in the preview.
+        // Limites de la capa de texto invisible. Ningun renglon de un
+        // documento pasa de una pulgada de alto, y una palabra cuya caja
+        // exige estirarla mas del triple o encogerla a menos de la mitad es
+        // una caja equivocada, no una palabra ancha.
+        private const float MinimumOcrFontSizePoints = 2F;
+        private const float MaximumOcrFontSizePoints = 72F;
+        private const float MinimumHorizontalScalePercent = 40F;
+        private const float MaximumHorizontalScalePercent = 300F;
+
         private const float MinimumOrientationConfidence = 3F;
         private const float MinimumDeskewDegrees = 0.35F;
         private const float MaximumDeskewDegrees = 5F;
@@ -940,6 +989,7 @@ namespace FirmaAutomatica
                             page.Analysis.PageNumber - 1,
                             effectiveSettings.OcrDpi,
                             effectiveSettings.MaximumPixelsPerPage,
+                            true,
                             out actualDpi))
                         {
                             SavePngDurably(bitmap, imagePath);
@@ -949,8 +999,11 @@ namespace FirmaAutomatica
                                 tsvBase,
                                 effectiveSettings.Language,
                                 actualDpi,
+                                effectiveSettings.Layout,
                                 cancellationToken);
-                            var words = ParseTsv(tsvPath);
+                            var words = ParseTsv(
+                                tsvPath,
+                                effectiveSettings.MinimumWordConfidence);
                             recognizedWords += words.Count;
                             pageData.Add(
                                 new OcrPageData(
@@ -977,6 +1030,7 @@ namespace FirmaAutomatica
                     currentPdfPath,
                     outputTemporaryPath,
                     pageData,
+                    effectiveSettings.MinimumWordConfidence,
                     cancellationToken);
 
                 Report(
@@ -1347,6 +1401,27 @@ namespace FirmaAutomatica
             int maximumPixels,
             out int actualDpi)
         {
+            return RenderPage(
+                document,
+                pageIndex,
+                requestedDpi,
+                maximumPixels,
+                false,
+                out actualDpi);
+        }
+
+        /// <summary>
+        /// Rasteriza una pagina. Con <paramref name="forRecognition"/> se
+        /// renderiza pensando en el OCR y no en la vista.
+        /// </summary>
+        private static Bitmap RenderPage(
+            PdfiumDocument document,
+            int pageIndex,
+            int requestedDpi,
+            int maximumPixels,
+            bool forRecognition,
+            out int actualDpi)
+        {
             if (document == null ||
                 pageIndex < 0 ||
                 pageIndex >= document.PageCount)
@@ -1382,15 +1457,25 @@ namespace FirmaAutomatica
                         pageSize.Height * actualDpi / 72D));
             }
 
+            // LcdText suaviza el texto con subpixeles: cada letra queda
+            // orlada de franjas rojas y azules. En pantalla se lee mejor,
+            // pero al OCR le llegan bordes de colores donde deberia haber
+            // negro y gris, y confunde letras finas. Para reconocer se pide
+            // suavizado normal.
+            var flags = forRecognition
+                ? PdfRenderFlags.Annotations |
+                    PdfRenderFlags.LimitImageCacheSize
+                : PdfRenderFlags.Annotations |
+                    PdfRenderFlags.LcdText |
+                    PdfRenderFlags.LimitImageCacheSize;
+
             using (var rendered = document.Render(
                 pageIndex,
                 width,
                 height,
                 actualDpi,
                 actualDpi,
-                PdfRenderFlags.Annotations |
-                PdfRenderFlags.LcdText |
-                PdfRenderFlags.LimitImageCacheSize))
+                flags))
             {
                 var bitmap = new Bitmap(
                     width,
@@ -2037,26 +2122,28 @@ namespace FirmaAutomatica
             string outputBase,
             string language,
             int dpi,
+            PdfOcrLayout layout,
             CancellationToken cancellationToken)
         {
+            // psm 3 reparte la pagina en bloques y detecta columnas; psm 4
+            // asume una sola columna admitiendo cuerpos distintos.
+            //
+            // Durante un tiempo psm 4 estuvo fijo en el codigo para arreglar
+            // un texto "troceado en vertical". Resulto no ser eso: las
+            // franjas eran los rectangulos del subrayador, no el OCR. Con el
+            // diagnostico deshecho vuelve el automatico, que es el unico que
+            // lee bien un documento a dos columnas, y el modo de una columna
+            // queda como eleccion del usuario para cuando el automatico se
+            // equivoque.
+            var pageSegmentation =
+                layout == PdfOcrLayout.UnaColumna ? "4" : "3";
             var arguments =
                 Quote(imagePath) + " " +
                 Quote(outputBase) +
                 " -l " + Quote(language) +
                 " --dpi " +
                 dpi.ToString(CultureInfo.InvariantCulture) +
-                // psm 4: una sola columna de texto con tamanos variables.
-                //
-                // Antes se usaba psm 3, que ademas intenta detectar columnas. En
-                // documentos a una columna con titulos y parrafos —memorias,
-                // contratos, informes— se equivocaba y partia la pagina en
-                // columnas inventadas, dejando el texto troceado en vertical en
-                // vez de seguido y bien estructurado.
-                //
-                // psm 4 respeta los cambios de cuerpo entre titulo y parrafo,
-                // que es lo que distingue a estos documentos, sin buscar
-                // columnas donde no las hay.
-                " --psm 4 tsv";
+                " --psm " + pageSegmentation + " tsv";
             RunProcess(
                 tesseractPath,
                 arguments,
@@ -2070,7 +2157,9 @@ namespace FirmaAutomatica
             }
         }
 
-        private static IList<OcrWord> ParseTsv(string path)
+        private static IList<OcrWord> ParseTsv(
+            string path,
+            float minimumConfidence)
         {
             var words = new List<OcrWord>();
             if (!File.Exists(path))
@@ -2107,12 +2196,30 @@ namespace FirmaAutomatica
                         continue;
                     }
 
+                    int block;
+                    int paragraph;
+                    int lineNumber;
                     int left;
                     int top;
                     int width;
                     int height;
                     float confidence;
                     if (!int.TryParse(
+                            fields[2],
+                            NumberStyles.Integer,
+                            CultureInfo.InvariantCulture,
+                            out block) ||
+                        !int.TryParse(
+                            fields[3],
+                            NumberStyles.Integer,
+                            CultureInfo.InvariantCulture,
+                            out paragraph) ||
+                        !int.TryParse(
+                            fields[4],
+                            NumberStyles.Integer,
+                            CultureInfo.InvariantCulture,
+                            out lineNumber) ||
+                        !int.TryParse(
                             fields[6],
                             NumberStyles.Integer,
                             CultureInfo.InvariantCulture,
@@ -2144,14 +2251,25 @@ namespace FirmaAutomatica
                     var text = NormalizeOcrText(fields[11]);
                     if (width <= 0 ||
                         height <= 0 ||
-                        confidence < 0F ||
                         text.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    // El filtro de confianza es lo que deja fuera las manchas
+                    // del escaneo leidas como letras. Antes solo se descartaba
+                    // una confianza negativa, valor que Tesseract nunca da en
+                    // nivel de palabra, asi que entraba todo.
+                    if (confidence < minimumConfidence)
                     {
                         continue;
                     }
 
                     words.Add(
                         new OcrWord(
+                            block,
+                            paragraph,
+                            lineNumber,
                             left,
                             top,
                             width,
@@ -2179,10 +2297,64 @@ namespace FirmaAutomatica
             return builder.ToString().Trim();
         }
 
+        /// <summary>
+        /// Agrupa las palabras en renglones. Tesseract las entrega en orden
+        /// de lectura y numera bloque, parrafo y linea, asi que basta con
+        /// cortar cuando cambia esa terna.
+        /// </summary>
+        private static IList<IList<OcrWord>> GroupIntoLines(
+            IList<OcrWord> words)
+        {
+            var lines = new List<IList<OcrWord>>();
+            List<OcrWord> current = null;
+            var block = int.MinValue;
+            var paragraph = int.MinValue;
+            var line = int.MinValue;
+            foreach (var word in words)
+            {
+                if (current == null ||
+                    word.Block != block ||
+                    word.Paragraph != paragraph ||
+                    word.Line != line)
+                {
+                    current = new List<OcrWord>();
+                    lines.Add(current);
+                    block = word.Block;
+                    paragraph = word.Paragraph;
+                    line = word.Line;
+                }
+
+                current.Add(word);
+            }
+
+            return lines;
+        }
+
+        /// <summary>
+        /// Mediana de una lista corta. Se usa para deducir el cuerpo y la
+        /// linea base de un renglon sin que una sola caja disparatada —una
+        /// mancha del escaneo leida como letra— arrastre a todo el renglon.
+        /// </summary>
+        private static float Median(IList<float> values)
+        {
+            if (values == null || values.Count == 0)
+            {
+                return 0F;
+            }
+
+            var ordered = new List<float>(values);
+            ordered.Sort();
+            var middle = ordered.Count / 2;
+            return ordered.Count % 2 == 1
+                ? ordered[middle]
+                : (ordered[middle - 1] + ordered[middle]) / 2F;
+        }
+
         private static void WriteTextLayer(
             string sourcePath,
             string outputPath,
             IList<OcrPageData> pages,
+            float minimumConfidence,
             CancellationToken cancellationToken)
         {
             PdfReader reader = null;
@@ -2208,7 +2380,9 @@ namespace FirmaAutomatica
                 foreach (var page in pages)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var words = ParseTsv(page.TsvPath);
+                    var words = ParseTsv(
+                        page.TsvPath,
+                        minimumConfidence);
                     if (words.Count == 0)
                     {
                         continue;
@@ -2227,38 +2401,68 @@ namespace FirmaAutomatica
                     content.BeginText();
                     content.SetTextRenderingMode(
                         PdfContentByte.TEXT_RENDER_MODE_INVISIBLE);
-                    foreach (var word in words)
+                    foreach (var line in GroupIntoLines(words))
                     {
-                        var x = word.Left * scaleX;
-                        var boxWidth = word.Width * scaleX;
-                        var boxHeight = word.Height * scaleY;
-                        var y =
-                            pageSize.Height -
-                            (word.Top + word.Height) *
-                            scaleY +
-                            boxHeight * 0.12F;
+                        // El cuerpo y la linea base salen del renglon
+                        // entero, no de cada palabra. Antes cada palabra
+                        // declaraba su propio cuerpo a partir del alto de
+                        // su caja, sin tope: una mancha del escaneo fundida
+                        // con una palabra producia una letra de varios
+                        // centimetros, y de ahi salian los recuadros del
+                        // subrayador tan altos como la pagina.
+                        var heights = new List<float>();
+                        var bottoms = new List<float>();
+                        foreach (var word in line)
+                        {
+                            heights.Add(word.Height * scaleY);
+                            bottoms.Add(
+                                (word.Top + word.Height) * scaleY);
+                        }
+
                         var fontSize = Math.Max(
-                            2F,
-                            boxHeight * 0.82F);
-                        var naturalWidth =
-                            font.GetWidthPoint(
-                                word.Text,
-                                fontSize);
-                        var horizontalScale =
-                            naturalWidth <= 0.01F
-                                ? 100F
-                                : Math.Max(
-                                    15F,
-                                    Math.Min(
-                                        600F,
-                                        boxWidth /
-                                        naturalWidth *
-                                        100F));
+                            MinimumOcrFontSizePoints,
+                            Math.Min(
+                                MaximumOcrFontSizePoints,
+                                Median(heights) * 0.82F));
+
+                        // Todas las palabras de un renglon comparten linea
+                        // base, como en cualquier texto compuesto. La caja
+                        // de Tesseract baja hasta el trazo descendente, asi
+                        // que la base queda algo por encima de su borde.
+                        var baseline =
+                            pageSize.Height -
+                            Median(bottoms) +
+                            fontSize * 0.15F;
+
                         content.SetFontAndSize(font, fontSize);
-                        content.SetHorizontalScaling(
-                            horizontalScale);
-                        content.SetTextMatrix(x, y);
-                        content.ShowText(word.Text);
+                        foreach (var word in line)
+                        {
+                            var x = word.Left * scaleX;
+                            var boxWidth = word.Width * scaleX;
+                            var naturalWidth =
+                                font.GetWidthPoint(
+                                    word.Text,
+                                    fontSize);
+                            // Estirar o encoger la palabra hasta ocupar su
+                            // caja mantiene alineada la seleccion con lo
+                            // que se ve. Fuera de estos limites la caja ya
+                            // no describe a la palabra, y hacerle caso
+                            // desplazaba el texto invisible pagina abajo.
+                            var horizontalScale =
+                                naturalWidth <= 0.01F
+                                    ? 100F
+                                    : Math.Max(
+                                        MinimumHorizontalScalePercent,
+                                        Math.Min(
+                                            MaximumHorizontalScalePercent,
+                                            boxWidth /
+                                            naturalWidth *
+                                            100F));
+                            content.SetHorizontalScaling(
+                                horizontalScale);
+                            content.SetTextMatrix(x, baseline);
+                            content.ShowText(word.Text);
+                        }
                     }
 
                     content.SetHorizontalScaling(100F);
@@ -2934,6 +3138,9 @@ namespace FirmaAutomatica
         private sealed class OcrWord
         {
             public OcrWord(
+                int block,
+                int paragraph,
+                int line,
                 int left,
                 int top,
                 int width,
@@ -2941,6 +3148,9 @@ namespace FirmaAutomatica
                 float confidence,
                 string text)
             {
+                Block = block;
+                Paragraph = paragraph;
+                Line = line;
                 Left = left;
                 Top = top;
                 Width = width;
@@ -2948,6 +3158,15 @@ namespace FirmaAutomatica
                 Confidence = confidence;
                 Text = text;
             }
+
+            /// <summary>Bloque de la pagina al que pertenece la palabra.</summary>
+            public int Block { get; private set; }
+
+            /// <summary>Parrafo dentro del bloque.</summary>
+            public int Paragraph { get; private set; }
+
+            /// <summary>Renglon dentro del parrafo.</summary>
+            public int Line { get; private set; }
 
             public int Left { get; private set; }
 
