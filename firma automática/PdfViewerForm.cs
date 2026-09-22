@@ -98,6 +98,8 @@ namespace FirmaAutomatica
         private readonly ToolStripMenuItem extractPagesMenuItem;
         private readonly ToolStripMenuItem stampMenuItem;
         private readonly ToolStripMenuItem signatureReportMenuItem;
+        private readonly ToolStripMenuItem exportImagesMenuItem;
+        private readonly ToolStripMenuItem exportTextMenuItem;
         private readonly ToolStripMenuItem shrinkMenuItem;
         private readonly ToolStripMenuItem editBookmarksMenuItem;
         private readonly ToolStripMenuItem compareMenuItem;
@@ -710,6 +712,28 @@ namespace FirmaAutomatica
                 moreMenu,
                 "Firmas del documento…",
                 delegate { ShowSignatureReport(); });
+
+            var exportSubmenu = new ToolStripMenuItem("Exportar")
+            {
+                Padding = new Padding(10, 4, 10, 4)
+            };
+            exportImagesMenuItem = new ToolStripMenuItem(
+                "Páginas como imagen…")
+            {
+                Padding = new Padding(10, 4, 10, 4)
+            };
+            exportImagesMenuItem.Click +=
+                delegate { ExportPagesAsImages(); };
+            exportTextMenuItem = new ToolStripMenuItem(
+                "Texto del documento…")
+            {
+                Padding = new Padding(10, 4, 10, 4)
+            };
+            exportTextMenuItem.Click +=
+                delegate { ExportDocumentText(); };
+            exportSubmenu.DropDownItems.Add(exportImagesMenuItem);
+            exportSubmenu.DropDownItems.Add(exportTextMenuItem);
+            moreMenu.Items.Add(exportSubmenu);
             shrinkMenuItem = AddMenuItem(
                 moreMenu,
                 "Reducir el tamaño…",
@@ -9269,6 +9293,9 @@ namespace FirmaAutomatica
                 !comparisonActive &&
                 !IsPageStructureOperationInProgress;
             signatureReportMenuItem.Enabled = hasLoadedDocument;
+            exportImagesMenuItem.Enabled =
+                hasLoadedDocument && !comparisonActive;
+            exportTextMenuItem.Enabled = hasLoadedDocument;
             shrinkMenuItem.Enabled =
                 hasLoadedDocument &&
                 !comparisonActive &&
@@ -9577,6 +9604,213 @@ namespace FirmaAutomatica
                 resultado.OutputPaths.Count.ToString(
                     System.Globalization.CultureInfo.CurrentCulture) +
                 " archivos junto al original, que no se ha modificado.";
+            OfferToShowInExplorer(resultado.OutputPaths);
+        }
+
+        /// <summary>Saca las paginas como imagenes sueltas.</summary>
+        private void ExportPagesAsImages()
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null ||
+                workspace.Document == null ||
+                workspace.Document.PageCount < 1 ||
+                string.IsNullOrEmpty(workspace.ContentPath))
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            CancelRectangleZoom(workspace);
+            var pageCount = workspace.Document.PageCount;
+            var paginaActual = Math.Max(
+                0,
+                Math.Min(
+                    pageCount - 1,
+                    workspace.Viewer.Renderer.Page)) + 1;
+
+            IList<int> paginas;
+            PdfExportImageFormat formato;
+            int resolucion;
+            int calidad;
+            using (var opciones = new PdfExportImagesForm(
+                pageCount,
+                paginaActual))
+            {
+                if (opciones.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                paginas = opciones.Pages;
+                formato = opciones.Format;
+                resolucion = opciones.Dpi;
+                calidad = opciones.JpegQuality;
+            }
+
+            if (paginas.Count == 0)
+            {
+                return;
+            }
+
+            var origen = workspace.ContentPath;
+            var propuesta = PdfExportService.SuggestImageDirectory(origen);
+            string carpeta;
+            using (var elegir = new FolderBrowserDialog())
+            {
+                elegir.Description =
+                    "Carpeta donde dejar las imágenes";
+                elegir.SelectedPath = Path.GetDirectoryName(propuesta);
+                elegir.ShowNewFolderButton = true;
+                if (elegir.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                carpeta = elegir.SelectedPath;
+            }
+
+            PdfExportResult resultado = null;
+            Exception fallo = null;
+            using (var progreso = new PdfBackgroundOperationForm(
+                "Exportar como imagen",
+                "Exportando las páginas…",
+                delegate
+                {
+                    try
+                    {
+                        resultado = PdfExportService.ExportImages(
+                            origen,
+                            paginas,
+                            carpeta,
+                            resolucion,
+                            formato,
+                            calidad,
+                            null,
+                            CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        fallo = ex;
+                    }
+                }))
+            {
+                progreso.Run(this);
+            }
+
+            if (fallo != null)
+            {
+                AppLog.Write("No se pudieron exportar las imágenes: " + fallo);
+                ShowPdfProblem(
+                    "Exportar como imagen",
+                    "No se pudieron exportar las páginas.",
+                    "El PDF no se ha modificado.",
+                    fallo,
+                    origen);
+                return;
+            }
+
+            if (resultado == null || resultado.OutputPaths.Count == 0)
+            {
+                return;
+            }
+
+            documentLabel.Text =
+                "Exportadas " +
+                resultado.OutputPaths.Count.ToString(
+                    System.Globalization.CultureInfo.CurrentCulture) +
+                (resultado.OutputPaths.Count == 1
+                    ? " imagen."
+                    : " imágenes.");
+            OfferToShowInExplorer(resultado.OutputPaths);
+        }
+
+        /// <summary>Saca el texto del documento a un archivo .txt.</summary>
+        private void ExportDocumentText()
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null ||
+                string.IsNullOrEmpty(workspace.ContentPath))
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            CancelRectangleZoom(workspace);
+            var origen = workspace.ContentPath;
+            var propuesta = PdfExportService.SuggestTextPath(origen);
+            string destino;
+            using (var guardar = new SaveFileDialog())
+            {
+                guardar.Title = "Guardar el texto del documento";
+                guardar.Filter = "Archivos de texto (*.txt)|*.txt";
+                guardar.DefaultExt = "txt";
+                guardar.AddExtension = true;
+                guardar.OverwritePrompt = true;
+                guardar.InitialDirectory = Path.GetDirectoryName(propuesta);
+                guardar.FileName = Path.GetFileName(propuesta);
+                if (guardar.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                destino = guardar.FileName;
+            }
+
+            PdfExportResult resultado = null;
+            Exception fallo = null;
+            using (var progreso = new PdfBackgroundOperationForm(
+                "Exportar el texto",
+                "Leyendo el documento…",
+                delegate
+                {
+                    try
+                    {
+                        resultado = PdfExportService.ExportText(
+                            origen,
+                            destino,
+                            null,
+                            CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        fallo = ex;
+                    }
+                }))
+            {
+                progreso.Run(this);
+            }
+
+            if (fallo != null)
+            {
+                AppLog.Write("No se pudo exportar el texto: " + fallo);
+                ShowPdfProblem(
+                    "Exportar el texto",
+                    "No se pudo sacar el texto.",
+                    "El PDF no se ha modificado.",
+                    fallo,
+                    origen);
+                return;
+            }
+
+            if (resultado == null || resultado.OutputPaths.Count == 0)
+            {
+                // Un escaneo sin OCR no tiene texto que sacar. Escribir un
+                // archivo vacio seria peor que decirlo.
+                documentLabel.Text =
+                    "Este PDF no tiene texto: es un escaneo sin OCR.";
+                MessageBox.Show(
+                    this,
+                    "Este documento no tiene texto que sacar: sus páginas " +
+                    "son imágenes.\r\n\r\nPasa antes el OCR y vuelve a " +
+                    "intentarlo.",
+                    "Exportar el texto",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            documentLabel.Text =
+                "Texto guardado en " + Path.GetFileName(destino) + ".";
             OfferToShowInExplorer(resultado.OutputPaths);
         }
 
