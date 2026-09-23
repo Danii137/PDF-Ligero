@@ -51,6 +51,12 @@ namespace FirmaAutomatica
         private readonly TextBox currentPageTextBox;
         private readonly Label pageTotalLabel;
         private readonly Button nextPageButton;
+        private readonly Button zoomOutButton;
+        private readonly ComboBox zoomSelector;
+        private readonly Button zoomInButton;
+
+        private const string ZoomFitPageText = "Página entera";
+        private const string ZoomFitWidthText = "Ajustar al ancho";
         private readonly Label paperEyebrowLabel;
         private readonly Label paperSizeLabel;
 
@@ -287,6 +293,72 @@ namespace FirmaAutomatica
             nextPageButton.Font = CreateArchitecturalFont(14.5f, false);
             nextPageButton.Click += delegate { NavigatePage(1); };
 
+            // Escala de la vista: se ve siempre a cuanto se esta mirando y se
+            // puede escribir a mano. Es lo primero que se busca al comparar
+            // una medida sobre un plano, y antes solo salia un momento en la
+            // barra de estado.
+            zoomOutButton = new Button
+            {
+                Width = 26,
+                Height = 30,
+                Text = "−",
+                Enabled = false,
+                AccessibleName = "Alejar"
+            };
+            StylePageButton(zoomOutButton);
+            zoomOutButton.Font = CreateArchitecturalFont(12f, false);
+            zoomOutButton.Click += delegate { ZoomActiveDocument(false); };
+
+            zoomSelector = new ComboBox
+            {
+                Width = 108,
+                DropDownStyle = ComboBoxStyle.DropDown,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.White,
+                ForeColor = TitleColor,
+                Enabled = false,
+                Font = CreateArchitecturalFont(9.5f, true),
+                MaxDropDownItems = 12,
+                AccessibleName = "Escala de la vista",
+                AccessibleDescription =
+                    "Escribe un porcentaje y pulsa Enter, o elige un ajuste."
+            };
+            zoomSelector.Items.AddRange(new object[]
+            {
+                ZoomFitPageText,
+                ZoomFitWidthText,
+                "25 %",
+                "50 %",
+                "75 %",
+                "100 %",
+                "125 %",
+                "150 %",
+                "200 %",
+                "300 %",
+                "400 %",
+                "800 %"
+            });
+            zoomSelector.SelectionChangeCommitted +=
+                delegate { ApplyZoomSelectorText(zoomSelector.SelectedItem as string); };
+            zoomSelector.KeyDown += ZoomSelector_KeyDown;
+            zoomSelector.Enter += delegate
+            {
+                zoomSelector.SelectAll();
+            };
+            zoomSelector.Leave += delegate { UpdateZoomIndicator(); };
+
+            zoomInButton = new Button
+            {
+                Width = 26,
+                Height = 30,
+                Text = "+",
+                Enabled = false,
+                AccessibleName = "Acercar"
+            };
+            StylePageButton(zoomInButton);
+            zoomInButton.Font = CreateArchitecturalFont(12f, false);
+            zoomInButton.Click += delegate { ZoomActiveDocument(true); };
+
             paperEyebrowLabel = new Label
             {
                 Top = 4,
@@ -319,6 +391,9 @@ namespace FirmaAutomatica
             headerPanel.Controls.Add(currentPageTextBox);
             headerPanel.Controls.Add(pageTotalLabel);
             headerPanel.Controls.Add(nextPageButton);
+            headerPanel.Controls.Add(zoomOutButton);
+            headerPanel.Controls.Add(zoomSelector);
+            headerPanel.Controls.Add(zoomInButton);
             headerPanel.Controls.Add(paperEyebrowLabel);
             headerPanel.Controls.Add(paperSizeLabel);
             headerPanel.Resize += HeaderPanel_Resize;
@@ -3529,7 +3604,7 @@ namespace FirmaAutomatica
             }
 
             CancelRectangleZoom(workspace);
-            workspace.Viewer.ZoomMode = PdfViewerZoomMode.FitWidth;
+            ApplyFitMode(workspace, PdfViewerZoomMode.FitWidth);
             ShowZoomLevelWhenSettled(workspace);
             workspace.Viewer.Focus();
         }
@@ -3577,9 +3652,24 @@ namespace FirmaAutomatica
             }
 
             CancelRectangleZoom(workspace);
-            workspace.Viewer.ZoomMode = modo;
+            ApplyFitMode(workspace, modo);
             ShowZoomLevelWhenSettled(workspace);
             workspace.Viewer.Focus();
+        }
+
+        /// <summary>
+        /// Ajuste a pagina o a ancho. En PdfiumViewer el modo solo fija la
+        /// base, y el Zoom se multiplica encima: si se habia acercado, poner
+        /// el modo no bastaba —medido: desde 300 % "Ajustar al ancho" se
+        /// quedaba en 300 %—. Hay que devolver el Zoom a 1.
+        /// </summary>
+        private static void ApplyFitMode(
+            PdfWorkspace workspace,
+            PdfViewerZoomMode modo)
+        {
+            workspace.Viewer.ZoomMode = modo;
+            workspace.Viewer.Renderer.ZoomMode = modo;
+            workspace.Viewer.Renderer.Zoom = 1D;
         }
 
         private void SetActiveZoom(double zoom)
@@ -3597,11 +3687,33 @@ namespace FirmaAutomatica
 
             CancelRectangleZoom(workspace);
             var renderer = workspace.Viewer.Renderer;
-            PdfZoomAnchor.SetZoom(
+            // Escala REAL: 1 es el tamaño del papel, que es lo que se espera
+            // al escribir 100 % o pulsar Ctrl+1.
+            PdfZoomAnchor.SetRealScale(
                 renderer,
                 PdfZoomAnchor.CenterOf(renderer),
                 zoom);
             ShowZoomLevel(workspace);
+
+            // El visor pinta la hoja entera en una imagen, asi que tiene un
+            // tope de aumento: un A1 al 400 % pesaria cientos de megas. Si lo
+            // pedido no cabe, se dice en vez de quedarse en otro numero sin
+            // explicacion.
+            var conseguido = PdfZoomAnchor.RealScale(renderer);
+            if (conseguido > 0D && zoom > conseguido * 1.02D)
+            {
+                documentLabel.Text =
+                    "El máximo para estas hojas es " +
+                    FormatZoom(conseguido) +
+                    ": más aumento no cabe en memoria.";
+            }
+            else if (conseguido > 0D && zoom < conseguido * 0.98D)
+            {
+                documentLabel.Text =
+                    "El mínimo para estas hojas es " +
+                    FormatZoom(conseguido) + ".";
+            }
+
             workspace.Viewer.Focus();
         }
 
@@ -3644,19 +3756,162 @@ namespace FirmaAutomatica
                 return;
             }
 
+            // La escala ya se ve siempre en la cabecera: repetirla en la barra
+            // de estado solo tapaba avisos utiles, como el de las firmas.
+            if (workspace == activeWorkspace)
+            {
+                UpdateZoomIndicator();
+            }
+        }
+
+        /// <summary>
+        /// Pone al dia el selector de escala de la cabecera con el aumento
+        /// real de la pestaña activa.
+        /// </summary>
+        private void UpdateZoomIndicator()
+        {
+            var workspace = activeWorkspace;
+            var disponible =
+                workspace != null &&
+                workspace.IsLoaded &&
+                !workspace.IsDisposed &&
+                workspace.Document != null &&
+                workspace.Viewer != null &&
+                !workspace.Viewer.IsDisposed &&
+                comparisonSurface == null;
+
+            zoomSelector.Enabled = disponible;
+            zoomOutButton.Enabled = disponible;
+            zoomInButton.Enabled = disponible;
+            if (!disponible)
+            {
+                if (!zoomSelector.Focused)
+                {
+                    zoomSelector.Text = string.Empty;
+                }
+
+                return;
+            }
+
+            // Mientras se esta escribiendo no se pisa lo escrito.
+            if (zoomSelector.Focused)
+            {
+                return;
+            }
+
             try
             {
-                var porcentaje = (int)Math.Round(
-                    workspace.Viewer.Renderer.Zoom * 100D);
-                documentLabel.Text =
-                    "Zoom " +
-                    porcentaje.ToString(
-                        System.Globalization.CultureInfo.CurrentCulture) +
-                    " %   ·   Ctrl+rueda para acercar, Ctrl+0 para ajustar";
+                zoomSelector.Text = FormatZoom(
+                    PdfZoomAnchor.RealScale(workspace.Viewer.Renderer));
             }
             catch (Exception)
             {
             }
+        }
+
+        private static string FormatZoom(double zoom)
+        {
+            var porcentaje = (int)Math.Round(zoom * 100D);
+            return porcentaje.ToString(
+                System.Globalization.CultureInfo.CurrentCulture) + " %";
+        }
+
+        private void ZoomSelector_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                ApplyZoomSelectorText(zoomSelector.Text);
+                return;
+            }
+
+            if (e.KeyCode == Keys.Escape)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                var workspace = GetLoadedActiveWorkspace();
+                if (workspace != null)
+                {
+                    workspace.Viewer.Focus();
+                }
+
+                UpdateZoomIndicator();
+            }
+        }
+
+        /// <summary>
+        /// Aplica lo que haya en el selector: un ajuste con nombre o un
+        /// porcentaje escrito a mano, con o sin el signo, con coma o punto.
+        /// Si no se entiende, se vuelve a enseñar la escala actual.
+        /// </summary>
+        private void ApplyZoomSelectorText(string texto)
+        {
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null || comparisonSurface != null)
+            {
+                UpdateZoomIndicator();
+                return;
+            }
+
+            var limpio = (texto ?? string.Empty).Trim();
+            if (string.Equals(
+                    limpio,
+                    ZoomFitPageText,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                workspace.Viewer.Focus();
+                SetActiveZoomMode(PdfViewerZoomMode.FitBest);
+                return;
+            }
+
+            if (string.Equals(
+                    limpio,
+                    ZoomFitWidthText,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                workspace.Viewer.Focus();
+                FitActiveDocumentToWidth();
+                return;
+            }
+
+            double porcentaje;
+            if (!TryParseZoomPercent(limpio, out porcentaje))
+            {
+                System.Media.SystemSounds.Beep.Play();
+                workspace.Viewer.Focus();
+                UpdateZoomIndicator();
+                return;
+            }
+
+            workspace.Viewer.Focus();
+            SetActiveZoom(porcentaje / 100D);
+        }
+
+        private static bool TryParseZoomPercent(
+            string texto,
+            out double porcentaje)
+        {
+            porcentaje = 0D;
+            var limpio = (texto ?? string.Empty)
+                .Replace("%", string.Empty)
+                .Trim()
+                .Replace(',', '.');
+            if (limpio.Length == 0)
+            {
+                return false;
+            }
+
+            if (!double.TryParse(
+                    limpio,
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out porcentaje))
+            {
+                return false;
+            }
+
+            return porcentaje >= 1D && porcentaje <= 6400D;
         }
 
         private void RotateActiveDocument(bool clockwise)
@@ -4799,6 +5054,18 @@ namespace FirmaAutomatica
                 {
                     documentLabel.Text = mensaje;
                 });
+
+            // Cualquier cambio de aumento —rueda, menu, ajuste al cambiar el
+            // tamaño de la ventana, zoom por rectangulo— se refleja en la
+            // escala de la cabecera.
+            var destinoEscala = workspace;
+            workspace.Viewer.Renderer.ZoomChanged += delegate
+            {
+                if (destinoEscala == activeWorkspace)
+                {
+                    UpdateZoomIndicator();
+                }
+            };
 
             workspace.RectangleZoom = new PdfRectangleZoomController(
                 workspace.Viewer.Renderer,
@@ -6781,6 +7048,7 @@ namespace FirmaAutomatica
                 paperEyebrowLabel.Visible = false;
                 paperSizeLabel.Visible = false;
                 toolTip.SetToolTip(paperSizeLabel, null);
+                UpdateZoomIndicator();
                 return;
             }
 
@@ -6789,8 +7057,11 @@ namespace FirmaAutomatica
                 currentPageTextBox.Enabled = false;
                 previousPageButton.Enabled = false;
                 nextPageButton.Enabled = false;
+                UpdateZoomIndicator();
                 return;
             }
+
+            UpdateZoomIndicator();
 
             var pageCount = workspace.Document.PageCount;
             var currentPage = Math.Max(
@@ -9291,7 +9562,8 @@ namespace FirmaAutomatica
             if (e.Control && !e.Shift && !e.Alt &&
                 e.KeyCode == Keys.C &&
                 !searchTextBox.Focused &&
-                !currentPageTextBox.Focused)
+                !currentPageTextBox.Focused &&
+                !zoomSelector.Focused)
             {
                 e.Handled = true;
                 e.SuppressKeyPress = true;
@@ -9302,7 +9574,8 @@ namespace FirmaAutomatica
             if (e.Control && !e.Shift && !e.Alt &&
                 e.KeyCode == Keys.A &&
                 !searchTextBox.Focused &&
-                !currentPageTextBox.Focused)
+                !currentPageTextBox.Focused &&
+                !zoomSelector.Focused)
             {
                 e.Handled = true;
                 e.SuppressKeyPress = true;
@@ -11137,7 +11410,8 @@ namespace FirmaAutomatica
 
         private void LayoutHeaderControls()
         {
-            const int groupWidth = 169;
+            // Pagina (169) + separacion + zoom (26 + 108 + 26 y huecos).
+            const int groupWidth = 169 + 18 + 166;
             paperEyebrowLabel.Left =
                 headerPanel.ClientSize.Width -
                 paperEyebrowLabel.Width - 16;
@@ -11162,6 +11436,13 @@ namespace FirmaAutomatica
             pageTotalLabel.Top = 10;
             nextPageButton.Left = pageTotalLabel.Right + 3;
             nextPageButton.Top = 10;
+
+            zoomOutButton.Left = nextPageButton.Right + 18;
+            zoomOutButton.Top = 10;
+            zoomSelector.Left = zoomOutButton.Right + 4;
+            zoomSelector.Top = 13;
+            zoomInButton.Left = zoomSelector.Right + 4;
+            zoomInButton.Top = 10;
 
             documentLabel.Width = Math.Max(
                 180,

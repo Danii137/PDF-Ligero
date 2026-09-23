@@ -441,6 +441,30 @@ Once bancos de pruebas nuevos, uno por entrega. Cada uno comprueba el resultado
 —el texto del PDF, los píxeles de la imagen, los bytes del adjunto— y no que el
 archivo exista.
 
+## Fase 12 — visor fluido y escala a la vista
+
+Cerrada el 23 de septiembre de 2026. Medido sobre un juego de planos real de 30
+hojas: rasterizar una hoja A1 cuesta 220–350 ms y el visor lo repetía en el hilo
+de la interfaz en cada salto de página y cada paso de zoom.
+
+- **Pasar de página: de ~300 ms a ~45 ms.** Las hojas vistas se guardan y un
+  hilo aparte prepara las de al lado (`PdfFluidDocument`).
+- **El zoom ya no se va de hoja.** Acercar cuatro pasos desde la hoja 12
+  llevaba a la 19; ahora el punto bajo el ratón se queda quieto
+  (`PdfZoomAnchor`).
+- **Escala real a la vista y editable** en la cabecera: `−  29 %  ▾  +`. Se
+  escribe un porcentaje y Enter, o se elige página entera, ajustar al ancho o
+  una escala de la lista. Ctrl+rueda, Ctrl+0/1/2, Ctrl++/−.
+
+Ojo al tocar esto: en PdfiumViewer `Zoom` **es relativo al ajuste**, no la
+escala real. Con «Zoom 1» un A3 se ve al 25 % de su tamaño. El porcentaje que
+se enseña se mide sobre la página en pantalla contra el papel.
+
+Límite conocido: el visor pinta cada hoja entera en una imagen, así que tiene
+un tope de aumento (con esos planos, 144 % real). No se sube porque un A1 al
+400 % serían cientos de MB; se avisa en la barra. Quitarlo exige pintar por
+teselas, que es parte de bifurcar PdfiumViewer.
+
 ## Siguiente entrega
 
 De la fase 9 solo queda comprar el certificado de firma de código. La
