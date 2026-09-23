@@ -28,6 +28,7 @@ namespace FirmaAutomatica
         private readonly Action fitPage;
         private readonly Action fitWidth;
         private readonly Action actualSize;
+        private readonly PdfSmoothZoomController smoothZoom;
 
         private bool disposed;
 
@@ -42,7 +43,8 @@ namespace FirmaAutomatica
             Action zoomChanged,
             Action fitPage,
             Action fitWidth,
-            Action actualSize)
+            Action actualSize,
+            Action<double> zoomPreview)
         {
             if (renderer == null)
             {
@@ -55,6 +57,7 @@ namespace FirmaAutomatica
             this.fitPage = fitPage;
             this.fitWidth = fitWidth;
             this.actualSize = actualSize;
+            smoothZoom = new PdfSmoothZoomController(renderer, zoomPreview);
 
             renderer.Disposed += Renderer_Disposed;
             Application.AddMessageFilter(this);
@@ -62,7 +65,20 @@ namespace FirmaAutomatica
 
         public bool PreFilterMessage(ref Message message)
         {
-            if (disposed || !Allowed())
+            if (disposed)
+            {
+                return false;
+            }
+
+            // Cualquier otra cosa mientras dura un zoom con la rueda lo
+            // termina primero: un clic, una tecla o desplazar sin Ctrl tienen
+            // que encontrar el visor ya en su sitio definitivo.
+            if (smoothZoom.IsActive && EndsGesture(ref message))
+            {
+                smoothZoom.Commit();
+            }
+
+            if (!Allowed())
             {
                 return false;
             }
@@ -115,14 +131,48 @@ namespace FirmaAutomatica
                     return true;
                 }
 
-                PdfZoomAnchor.Step(renderer, enVisor, delta > 0);
-                Notify();
+                // Nada de rasterizar en cada muesca: se reescala lo que hay
+                // en pantalla y se afina al soltar la rueda.
+                smoothZoom.Wheel(enVisor, delta);
                 return true;
             }
             catch (Exception)
             {
                 return false;
             }
+        }
+
+        private static bool EndsGesture(ref Message message)
+        {
+            switch (message.Msg)
+            {
+                case 0x0100: // WM_KEYDOWN
+                case 0x0104: // WM_SYSKEYDOWN
+                    // Mantener Ctrl pulsado repite su propia pulsacion sin
+                    // parar: si eso terminara el gesto, el zoom suave no
+                    // duraria ni una muesca.
+                    var tecla = (Keys)((int)(long)message.WParam & 0xFFFF);
+                    return tecla != Keys.ControlKey &&
+                        tecla != Keys.ShiftKey &&
+                        tecla != Keys.Menu &&
+                        tecla != Keys.LControlKey &&
+                        tecla != Keys.RControlKey &&
+                        tecla != Keys.LShiftKey &&
+                        tecla != Keys.RShiftKey;
+
+                case 0x0201: // WM_LBUTTONDOWN
+                case 0x0204: // WM_RBUTTONDOWN
+                case 0x0207: // WM_MBUTTONDOWN
+                case 0x00A1: // WM_NCLBUTTONDOWN (barras, titulo)
+                    return true;
+
+                case WmMouseWheel:
+                    // Rueda sin Ctrl: se desplaza, y el gesto se acaba.
+                    return ((long)message.WParam & 0x0008) == 0 &&
+                        (Control.ModifierKeys & Keys.Control) != Keys.Control;
+            }
+
+            return false;
         }
 
         private bool HandleKey(Keys tecla)
@@ -287,6 +337,7 @@ namespace FirmaAutomatica
 
             disposed = true;
             Application.RemoveMessageFilter(this);
+            smoothZoom.Dispose();
             try
             {
                 renderer.Disposed -= Renderer_Disposed;

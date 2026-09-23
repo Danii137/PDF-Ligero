@@ -5037,7 +5037,18 @@ namespace FirmaAutomatica
                     SetActiveZoomMode(PdfViewerZoomMode.FitBest);
                 },
                 delegate { FitActiveDocumentToWidth(); },
-                delegate { SetActiveZoom(1D); });
+                delegate { SetActiveZoom(1D); },
+                delegate(double escala)
+                {
+                    // Durante el gesto la escala se ve cambiar al momento,
+                    // aunque el visor aun no la haya aplicado.
+                    if (destinoNavegacion == activeWorkspace &&
+                        !zoomSelector.Focused &&
+                        escala > 0D)
+                    {
+                        zoomSelector.Text = FormatZoom(escala);
+                    }
+                });
 
             // La seleccion de texto se crea antes que el zoom por rectangulo
             // porque este le pregunta si hay texto bajo el punto para cederle

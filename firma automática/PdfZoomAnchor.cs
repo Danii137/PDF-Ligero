@@ -196,9 +196,48 @@ namespace FirmaAutomatica
                 renderer.ClientSize.Height / 2);
         }
 
+        /// <summary>
+        /// Cambia a una escala real y lleva el punto del documento que ahora
+        /// esta bajo <paramref name="before"/> hasta <paramref name="after"/>.
+        /// Es lo que necesita el zoom suave: la animacion deja un punto en un
+        /// sitio y el visor tiene que acabar enseñando lo mismo.
+        /// </summary>
+        public static void MoveKeepingPoint(
+            PdfRenderer renderer,
+            Point before,
+            Point after,
+            double realScale)
+        {
+            if (renderer == null || renderer.Document == null)
+            {
+                return;
+            }
+
+            var actual = RealScale(renderer);
+            if (actual <= 0D || renderer.Zoom <= 0D)
+            {
+                return;
+            }
+
+            ApplyMapping(
+                renderer,
+                before,
+                after,
+                renderer.Zoom * realScale / actual);
+        }
+
         private static void ApplyKeepingAnchor(
             PdfRenderer renderer,
             Point anchorClientPoint,
+            double zoom)
+        {
+            ApplyMapping(renderer, anchorClientPoint, anchorClientPoint, zoom);
+        }
+
+        private static void ApplyMapping(
+            PdfRenderer renderer,
+            Point anchorClientPoint,
+            Point targetClientPoint,
             double zoom)
         {
             var limitado = Math.Max(
@@ -239,10 +278,10 @@ namespace FirmaAutomatica
                     renderer.SetDisplayRectLocation(
                         new Point(
                             (int)Math.Round(
-                                anchorClientPoint.X -
+                                targetClientPoint.X -
                                 (fraccionX * areaDespues.Width)),
                             (int)Math.Round(
-                                anchorClientPoint.Y -
+                                targetClientPoint.Y -
                                 (fraccionY * areaDespues.Height))));
                 }
                 catch (Exception ex)
@@ -256,17 +295,25 @@ namespace FirmaAutomatica
 
             try
             {
-                var despues = renderer.PointFromPdf(antes);
-                var dx = despues.X - anchorClientPoint.X;
-                var dy = despues.Y - anchorClientPoint.Y;
-                if (dx == 0 && dy == 0)
+                // Dos pasadas. Mover la vista puede hacer aparecer o
+                // desaparecer una barra de desplazamiento, el visor se
+                // reajusta y el punto se corre unos pixeles —medido: 13 px al
+                // terminar un zoom con la rueda—. La segunda pasada corrige
+                // ese resto.
+                for (var pasada = 0; pasada < 2; pasada++)
                 {
-                    return;
-                }
+                    var despues = renderer.PointFromPdf(antes);
+                    var dx = despues.X - targetClientPoint.X;
+                    var dy = despues.Y - targetClientPoint.Y;
+                    if (dx == 0 && dy == 0)
+                    {
+                        return;
+                    }
 
-                var area = renderer.DisplayRectangle;
-                renderer.SetDisplayRectLocation(
-                    new Point(area.X - dx, area.Y - dy));
+                    var area = renderer.DisplayRectangle;
+                    renderer.SetDisplayRectLocation(
+                        new Point(area.X - dx, area.Y - dy));
+                }
             }
             catch (Exception ex)
             {
