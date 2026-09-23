@@ -226,6 +226,38 @@ namespace FirmaAutomatica
                 renderer.Zoom * realScale / actual);
         }
 
+        /// <summary>
+        /// Cambia a una escala real y lleva un punto concreto del PDF hasta
+        /// <paramref name="after"/>. Con el punto del PDF, y no un pixel de la
+        /// pantalla, no se pierde la fraccion de pixel en cada gesto: medido,
+        /// seis muescas sueltas acumulaban 8 px de deriva solo por redondeo.
+        /// </summary>
+        public static void MovePdfPointTo(
+            PdfRenderer renderer,
+            PdfPoint point,
+            Point after,
+            double realScale)
+        {
+            if (renderer == null || renderer.Document == null ||
+                !point.IsValid || point.Page < 0)
+            {
+                return;
+            }
+
+            var actual = RealScale(renderer);
+            if (actual <= 0D || renderer.Zoom <= 0D)
+            {
+                return;
+            }
+
+            renderer.Zoom = Math.Max(
+                renderer.ZoomMin,
+                Math.Min(
+                    renderer.ZoomMax,
+                    renderer.Zoom * realScale / actual));
+            PlacePdfPoint(renderer, point, after);
+        }
+
         private static void ApplyKeepingAnchor(
             PdfRenderer renderer,
             Point anchorClientPoint,
@@ -244,15 +276,7 @@ namespace FirmaAutomatica
                 renderer.ZoomMin,
                 Math.Min(renderer.ZoomMax, zoom));
 
-            PdfPoint antes;
-            try
-            {
-                antes = renderer.PointToPdf(anchorClientPoint);
-            }
-            catch (Exception)
-            {
-                antes = new PdfPoint();
-            }
+            var antes = PointToPdfExact(renderer, anchorClientPoint);
 
             // Posicion del raton dentro del documento entero, en proporcion.
             // Sirve cuando el raton no esta sobre ninguna hoja: el fondo gris
@@ -293,6 +317,14 @@ namespace FirmaAutomatica
                 return;
             }
 
+            PlacePdfPoint(renderer, antes, targetClientPoint);
+        }
+
+        private static void PlacePdfPoint(
+            PdfRenderer renderer,
+            PdfPoint antes,
+            Point targetClientPoint)
+        {
             try
             {
                 // Dos pasadas. Mover la vista puede hacer aparecer o
@@ -302,9 +334,9 @@ namespace FirmaAutomatica
                 // ese resto.
                 for (var pasada = 0; pasada < 2; pasada++)
                 {
-                    var despues = renderer.PointFromPdf(antes);
-                    var dx = despues.X - targetClientPoint.X;
-                    var dy = despues.Y - targetClientPoint.Y;
+                    var despues = PointFromPdfPrecise(renderer, antes);
+                    var dx = (int)Math.Round(despues.X - targetClientPoint.X);
+                    var dy = (int)Math.Round(despues.Y - targetClientPoint.Y);
                     if (dx == 0 && dy == 0)
                     {
                         return;
@@ -320,6 +352,116 @@ namespace FirmaAutomatica
                 AppLog.Write(
                     "No se pudo mantener el punto al hacer zoom: " + ex);
             }
+        }
+
+        /// <summary>
+        /// El punto del PDF bajo un punto del visor, sin el error de
+        /// PdfRenderer.PointToPdf.
+        ///
+        /// PointToPdf se equivoca en unos 2,4 px —medido contra el recuadro de
+        /// la hoja; PointFromPdf, en cambio, cae exacto—. Parece poco, pero el
+        /// zoom anclado usaba los dos: tomaba el punto con uno y lo recolocaba
+        /// con el otro, y cada gesto corria el plano esos pixeles multiplicados
+        /// por el aumento. Seis muescas sueltas: 37 px de deriva. Aqui se
+        /// invierte PointFromPdf: se miran tres esquinas de la hoja y se
+        /// resuelve la correspondencia, que vale tambien con la hoja girada.
+        /// </summary>
+        public static PdfPoint PointToPdfExact(
+            PdfRenderer renderer,
+            Point clientPoint)
+        {
+            return PointToPdfExact(
+                renderer,
+                new PointF(clientPoint.X, clientPoint.Y));
+        }
+
+        /// <summary>Lo mismo, con fracciones de pixel.</summary>
+        public static PdfPoint PointToPdfExact(
+            PdfRenderer renderer,
+            PointF clientPoint)
+        {
+            PdfPoint aproximado;
+            try
+            {
+                aproximado = renderer.PointToPdf(Point.Round(clientPoint));
+            }
+            catch (Exception)
+            {
+                return new PdfPoint();
+            }
+
+            if (!aproximado.IsValid ||
+                aproximado.Page < 0 ||
+                renderer.Document == null ||
+                aproximado.Page >= renderer.Document.PageCount)
+            {
+                return aproximado;
+            }
+
+            try
+            {
+                var pagina = aproximado.Page;
+                var tamano = renderer.Document.PageSizes[pagina];
+                Point o, ex, ey;
+                PageCorners(renderer, pagina, out o, out ex, out ey);
+
+                // p - o = u·(ex - o) + v·(ey - o), con u y v en 0..1.
+                double ax = ex.X - o.X, ay = ex.Y - o.Y;
+                double bx = ey.X - o.X, by = ey.Y - o.Y;
+                var determinante = (ax * by) - (bx * ay);
+                if (Math.Abs(determinante) < 1D)
+                {
+                    return aproximado;
+                }
+
+                double px = clientPoint.X - o.X, py = clientPoint.Y - o.Y;
+                var u = ((px * by) - (bx * py)) / determinante;
+                var v = ((ax * py) - (px * ay)) / determinante;
+                return new PdfPoint(
+                    pagina,
+                    new PointF(
+                        (float)(u * tamano.Width),
+                        (float)(v * tamano.Height)));
+            }
+            catch (Exception)
+            {
+                return aproximado;
+            }
+        }
+
+        /// <summary>
+        /// Donde cae un punto del PDF en el visor, con fracciones de pixel.
+        /// PointFromPdf es exacto pero redondea al pixel, y ese medio pixel,
+        /// multiplicado gesto tras gesto por el aumento, se nota.
+        /// </summary>
+        public static PointF PointFromPdfPrecise(
+            PdfRenderer renderer,
+            PdfPoint point)
+        {
+            var tamano = renderer.Document.PageSizes[point.Page];
+            Point o, ex, ey;
+            PageCorners(renderer, point.Page, out o, out ex, out ey);
+            var u = point.Location.X / tamano.Width;
+            var v = point.Location.Y / tamano.Height;
+            return new PointF(
+                (float)(o.X + (u * (ex.X - o.X)) + (v * (ey.X - o.X))),
+                (float)(o.Y + (u * (ex.Y - o.Y)) + (v * (ey.Y - o.Y))));
+        }
+
+        private static void PageCorners(
+            PdfRenderer renderer,
+            int pagina,
+            out Point origen,
+            out Point finAncho,
+            out Point finAlto)
+        {
+            var tamano = renderer.Document.PageSizes[pagina];
+            origen = renderer.PointFromPdf(
+                new PdfPoint(pagina, new PointF(0F, 0F)));
+            finAncho = renderer.PointFromPdf(
+                new PdfPoint(pagina, new PointF(tamano.Width, 0F)));
+            finAlto = renderer.PointFromPdf(
+                new PdfPoint(pagina, new PointF(0F, tamano.Height)));
         }
 
         /// <summary>

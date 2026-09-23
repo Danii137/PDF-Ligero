@@ -120,6 +120,8 @@ namespace SmoothZoomQa
                     fallos++;
                 }
 
+                fallos += RuedaDirectaYCursor(path);
+
                 if (fallos == 0)
                 {
                     Console.WriteLine();
@@ -179,7 +181,7 @@ namespace SmoothZoomQa
             for (var y = r.ClientSize.Height * 2 / 3; y > 20; y -= 20)
             {
                 var p = new Point(r.ClientSize.Width / 2 + 60, y);
-                var enPdf = r.PointToPdf(p);
+                var enPdf = PdfZoomAnchor.PointToPdfExact(r, p);
                 if (enPdf.IsValid && enPdf.Page >= 0)
                 {
                     return p;
@@ -244,7 +246,7 @@ namespace SmoothZoomQa
                 resultado.EscalaInicial = PdfZoomAnchor.RealScale(r);
                 resultado.EscalaMaxima =
                     resultado.EscalaInicial / r.Zoom * r.ZoomMax;
-                var bajoPuntero = r.PointToPdf(p);
+                var bajoPuntero = PdfZoomAnchor.PointToPdfExact(r, p);
 
                 using (var gesto = new PdfSmoothZoomController(r, null))
                 {
@@ -340,7 +342,7 @@ namespace SmoothZoomQa
 
                 // Y de vuelta: alejar las mismas muescas tiene que dejar la
                 // escala de partida y el mismo punto bajo el puntero.
-                var bajoPuntero2 = r.PointToPdf(p);
+                var bajoPuntero2 = PdfZoomAnchor.PointToPdfExact(r, p);
                 using (var gesto = new PdfSmoothZoomController(r, null))
                 {
                     for (var i = 0; i < Muescas; i++)
@@ -375,6 +377,92 @@ namespace SmoothZoomQa
             }
 
             return resultado;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(
+            IntPtr ventana, int mensaje, IntPtr w, IntPtr l);
+
+        /// <summary>
+        /// Con el raton de verdad, PdfiumViewer se adelanta: su propio filtro
+        /// de rueda —instalado al crear el visor, antes que el nuestro— manda
+        /// la rueda directamente a la ventana del visor y se la come. Asi
+        /// llega aqui. Tiene que acabar en el zoom suave, no en el de
+        /// PdfiumViewer, que no mira el puntero.
+        ///
+        /// Y sobre la hoja tiene que verse la flecha, no la mano.
+        /// </summary>
+        private static int RuedaDirectaYCursor(string path)
+        {
+            var fallos = 0;
+            PdfViewer viewer;
+            using (var form = CrearVentana(out viewer))
+            using (var real = PdfDocument.Load(path))
+            using (var fluido = new PdfFluidDocument(real, null))
+            {
+                viewer.Document = fluido;
+                viewer.ZoomMode = PdfViewerZoomMode.FitWidth;
+                Application.DoEvents();
+                var r = viewer.Renderer;
+                var escalaVista = 0D;
+                using (new PdfViewNavigationController(
+                    r,
+                    delegate { return true; },
+                    null,
+                    null,
+                    null,
+                    null,
+                    delegate(double escala) { escalaVista = escala; }))
+                {
+                    var zoomAntes = r.Zoom;
+                    var p = r.PointToScreen(new Point(
+                        r.ClientSize.Width / 3,
+                        r.ClientSize.Height / 3));
+                    var w = (120L << 16) | 0x0008L;
+                    var l = ((long)(p.Y & 0xFFFF) << 16) | (long)(p.X & 0xFFFF);
+                    SendMessage(r.Handle, 0x020A, (IntPtr)w, (IntPtr)l);
+                    Application.DoEvents();
+
+                    if (escalaVista <= 0D)
+                    {
+                        Console.Error.WriteLine(
+                            "FAIL: la rueda enviada directa al visor no llega al zoom suave.");
+                        fallos++;
+                    }
+                    else if (Math.Abs(r.Zoom - zoomAntes) > 0.0001D)
+                    {
+                        Console.Error.WriteLine(
+                            "FAIL: la rueda directa la ha atendido tambien el zoom de PdfiumViewer.");
+                        fallos++;
+                    }
+                    else
+                    {
+                        Console.WriteLine(
+                            "  Rueda enviada directa al visor (como hace PdfiumViewer): la atiende el zoom suave");
+                    }
+
+                    var campo = typeof(PdfRenderer).BaseType.GetField(
+                        "PanCursor",
+                        System.Reflection.BindingFlags.Static |
+                        System.Reflection.BindingFlags.NonPublic |
+                        System.Reflection.BindingFlags.Public);
+                    var cursor = campo == null ? null : campo.GetValue(null);
+                    if (!ReferenceEquals(cursor, Cursors.Default))
+                    {
+                        Console.Error.WriteLine(
+                            "FAIL: sobre la hoja sigue saliendo la mano.");
+                        fallos++;
+                    }
+                    else
+                    {
+                        Console.WriteLine("  Cursor sobre la hoja: flecha normal");
+                    }
+                }
+
+                viewer.Document = null;
+            }
+
+            return fallos;
         }
 
         private static bool FotoConContenido(PdfRenderer r)

@@ -47,6 +47,7 @@ namespace SaveIntegrityQa
                 fallos += OrganizarYComprobar(directorio);
                 fallos += MarcadoresYComprobar(directorio);
                 fallos += CopiaAtomica(directorio);
+                fallos += GuardarEncima(directorio);
 
                 if (fallos == 0)
                 {
@@ -388,6 +389,146 @@ namespace SaveIntegrityQa
 
             Console.WriteLine("   copia identica por SHA-256");
             return 0;
+        }
+
+        /// <summary>
+        /// "Guardar": los cambios van encima del PDF abierto. Tiene que quedar
+        /// exactamente la revision, la version anterior tiene que estar
+        /// intacta en la carpeta de anteriores, deshacer hasta el principio
+        /// tiene que enseñar esa version anterior —no el PDF ya cambiado—, y
+        /// si otro programa tiene el PDF bloqueado, el original no se toca.
+        /// </summary>
+        private static int GuardarEncima(string directorio)
+        {
+            Console.WriteLine("--- Guardar encima del original ---");
+            var fallos = 0;
+            var original = IoPath.Combine(directorio, "plano abierto.pdf");
+            var anteriores = IoPath.Combine(directorio, "anteriores");
+            CrearPdf(original, 4);
+            var hashAnterior = Hash(original);
+
+            var sesion = PdfEditSession.Create(original);
+            try
+            {
+                var revision = sesion.ReserveRevisionPath();
+                CrearPdf(revision, 6);
+                sesion.CommitRevision(revision, "Seis hojas");
+                var hashRevision = Hash(revision);
+
+                string copia;
+                PdfAtomicFileService.ReplaceOriginal(
+                    sesion.CurrentPath,
+                    original,
+                    anteriores,
+                    out copia);
+                sesion.MarkSavedOverSource(copia);
+
+                if (Hash(original) != hashRevision)
+                {
+                    Console.Error.WriteLine(
+                        "FAIL: el PDF guardado no es la revision.");
+                    fallos++;
+                }
+                else
+                {
+                    var reader = new PdfReader(original);
+                    Console.WriteLine(
+                        "   el PDF abierto tiene ahora " +
+                        reader.NumberOfPages.ToString(CultureInfo.InvariantCulture) +
+                        " hojas, identico a la revision por SHA-256");
+                    reader.Close();
+                }
+
+                if (copia == null || !File.Exists(copia) ||
+                    Hash(copia) != hashAnterior)
+                {
+                    Console.Error.WriteLine(
+                        "FAIL: la version anterior no quedo intacta en anteriores.");
+                    fallos++;
+                }
+                else
+                {
+                    Console.WriteLine(
+                        "   version anterior intacta en: " +
+                        IoPath.GetFileName(copia));
+                }
+
+                if (Directory.GetFiles(directorio, "*.tmp").Length > 0)
+                {
+                    Console.Error.WriteLine("FAIL: quedo un temporal.");
+                    fallos++;
+                }
+
+                if (sesion.HasUnsavedChanges)
+                {
+                    Console.Error.WriteLine(
+                        "FAIL: tras guardar sigue habiendo cambios sin guardar.");
+                    fallos++;
+                }
+
+                var alPrincipio = sesion.Undo();
+                if (alPrincipio == null || Hash(alPrincipio) != hashAnterior)
+                {
+                    Console.Error.WriteLine(
+                        "FAIL: deshacer hasta el principio no enseña la version anterior.");
+                    fallos++;
+                }
+                else
+                {
+                    Console.WriteLine(
+                        "   deshacer hasta el principio enseña la version anterior");
+                }
+
+                sesion.Redo();
+
+                // Otro programa tiene el PDF abierto sin dejar escribir: no se
+                // puede guardar, pero el PDF no puede quedar tocado.
+                var antesDelBloqueo = Hash(original);
+                var fallido = false;
+                using (new FileStream(
+                    original,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read))
+                {
+                    try
+                    {
+                        string otra;
+                        PdfAtomicFileService.ReplaceOriginal(
+                            copia,
+                            original,
+                            anteriores,
+                            out otra);
+                    }
+                    catch (IOException)
+                    {
+                        fallido = true;
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        fallido = true;
+                    }
+                }
+
+                if (!fallido || Hash(original) != antesDelBloqueo ||
+                    Directory.GetFiles(directorio, "*.tmp").Length > 0)
+                {
+                    Console.Error.WriteLine(
+                        "FAIL: con el PDF bloqueado, el guardado no fallo limpio.");
+                    fallos++;
+                }
+                else
+                {
+                    Console.WriteLine(
+                        "   con el PDF bloqueado por otro programa: falla limpio, sin tocarlo");
+                }
+            }
+            finally
+            {
+                sesion.DeleteRecovery();
+            }
+
+            return fallos;
         }
 
         private static void CrearPdf(string path, int paginas)

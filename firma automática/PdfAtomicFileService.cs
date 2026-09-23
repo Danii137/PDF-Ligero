@@ -83,6 +83,127 @@ namespace FirmaAutomatica
             }
         }
 
+        /// <summary>
+        /// Guarda la revision activa ENCIMA del PDF abierto, sin arriesgarlo.
+        ///
+        /// Antes de tocar nada se copia el PDF tal como estaba a la carpeta de
+        /// anteriores: si algo sale mal, o el cambio no convence, el original
+        /// sigue ahi. Luego se escribe la revision a un temporal en la misma
+        /// carpeta, se verifica, y se cambia por el original en una sola
+        /// operacion del sistema (File.Replace): nunca queda un PDF a medias.
+        /// </summary>
+        /// <param name="backupPath">Donde ha quedado la copia del anterior.</param>
+        /// <returns>El hash del contenido guardado.</returns>
+        public static string ReplaceOriginal(
+            string sourcePath,
+            string originalPath,
+            string backupDirectory,
+            out string backupPath)
+        {
+            backupPath = null;
+            if (string.IsNullOrWhiteSpace(sourcePath) ||
+                !File.Exists(sourcePath))
+            {
+                throw new FileNotFoundException(
+                    "No se encuentra la revision activa del PDF.",
+                    sourcePath);
+            }
+
+            var normalizedSource = Path.GetFullPath(sourcePath);
+            var normalizedOriginal = Path.GetFullPath(originalPath);
+            if (string.Equals(
+                    normalizedSource,
+                    normalizedOriginal,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "No hay cambios que guardar.");
+            }
+
+            if (!File.Exists(normalizedOriginal))
+            {
+                throw new FileNotFoundException(
+                    "El PDF original ya no esta en su carpeta.",
+                    normalizedOriginal);
+            }
+
+            var directory = Path.GetDirectoryName(normalizedOriginal);
+            EnsureFreeSpace(normalizedSource, directory);
+
+            Directory.CreateDirectory(backupDirectory);
+            PruneBackups(backupDirectory, TimeSpan.FromDays(30));
+            var backup = Path.Combine(
+                backupDirectory,
+                Path.GetFileNameWithoutExtension(normalizedOriginal) +
+                " " + DateTime.Now.ToString("yyyyMMdd-HHmmss") +
+                ".pdf");
+            if (File.Exists(backup))
+            {
+                backup = Path.Combine(
+                    backupDirectory,
+                    Path.GetFileNameWithoutExtension(backup) + " " +
+                    Guid.NewGuid().ToString("N").Substring(0, 6) + ".pdf");
+            }
+
+            CopyDurably(normalizedOriginal, backup);
+            ValidateCopy(normalizedOriginal, backup);
+            backupPath = backup;
+
+            var temporaryPath = Path.Combine(
+                directory,
+                "." + Path.GetFileNameWithoutExtension(normalizedOriginal) +
+                "." + Guid.NewGuid().ToString("N") + ".tmp");
+            try
+            {
+                var contentHash =
+                    CopyDurably(normalizedSource, temporaryPath);
+                ValidateCopy(normalizedSource, temporaryPath);
+                File.Replace(temporaryPath, normalizedOriginal, null);
+                return contentHash;
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(temporaryPath))
+                    {
+                        File.Delete(temporaryPath);
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        /// <summary>
+        /// Las copias de anteriores se guardan un mes: suficiente para
+        /// arrepentirse, sin que la carpeta crezca sin fin con planos de 10 MB.
+        /// </summary>
+        private static void PruneBackups(string directory, TimeSpan age)
+        {
+            try
+            {
+                var limite = DateTime.UtcNow - age;
+                foreach (var file in Directory.GetFiles(directory, "*.pdf"))
+                {
+                    try
+                    {
+                        if (File.GetLastWriteTimeUtc(file) < limite)
+                        {
+                            File.Delete(file);
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
         public static string ComputeFullContentHash(string path)
         {
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))

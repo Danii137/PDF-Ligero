@@ -27,6 +27,15 @@ namespace FirmaAutomatica
     /// del PDF habia debajo, y llevar ese punto justo al sitio donde lo
     /// dejo la animacion. Asi lo que se ve al soltar coincide con lo que se
     /// veia en la foto.
+    ///
+    /// LOS LIMITES DEL VISOR. PdfiumViewer solo deja desplazar un eje cuando
+    /// la hoja no cabe en el: si cabe, la centra en horizontal y la pega
+    /// arriba en vertical. Con la pagina entera a la vista, pues, el punto
+    /// bajo el puntero no se puede quedar quieto: la animacion lo llevaba al
+    /// puntero y al soltar la hoja saltaba al centro —medido: hasta 208 px—.
+    /// Ahora la animacion ya respeta esos limites y aterriza donde el visor
+    /// la va a dejar, y ademas se recuerda el punto al que se apuntaba: en
+    /// cuanto la hoja crece lo bastante, ese punto vuelve bajo el puntero.
     /// </summary>
     internal sealed class PdfSmoothZoomController : IDisposable
     {
@@ -48,8 +57,13 @@ namespace FirmaAutomatica
 
         private readonly PdfRenderer renderer;
         private readonly Action<double> scaleChanged;
+        // Un solo temporizador para todo el gesto: anima y, cuando la rueda
+        // lleva quieta lo bastante, lo termina. Antes habia otro para eso y
+        // se paraba y arrancaba en cada muesca: parar un Timer de WinForms
+        // destruye su ventana interna y arrancarlo crea otra, y en este equipo
+        // eso costaba 21 ms por muesca, mas que todo el resto del gesto.
         private readonly Timer frameTimer;
-        private readonly Timer settleTimer;
+        private int lastWheelTicks;
 
         private ZoomOverlay overlay;
         private Bitmap snapshot;
@@ -77,6 +91,36 @@ namespace FirmaAutomatica
         private double maxRealScale;
         private Point lastPointer;
 
+        // El punto de la foto que tiene que acabar bajo el puntero, y donde
+        // estaba el puntero cuando se eligio. Se mantiene aunque los limites
+        // del visor no dejen ponerlo alli todavia.
+        private double anchorX;
+        private double anchorY;
+        private Point anchorPointer;
+
+        // El documento entero en la foto: su esquina y su tamaño. Sirven para
+        // saber que posiciones permite el visor a cada escala.
+        private bool documentKnown;
+        private double documentLeft;
+        private double documentTop;
+        private double documentWidth;
+        private double documentHeight;
+
+        // El punto al que se apuntaba en el ultimo gesto, si los limites no
+        // dejaron llevarlo bajo el puntero. Si el siguiente gesto empieza en
+        // el mismo sitio y sin haber movido la vista, se sigue buscando ese.
+        private bool hasPendingAnchor;
+        private PdfPoint pendingAnchor;
+        private Point pendingPointer;
+        private double pendingZoom;
+        private Point pendingScroll;
+        private IPdfDocument pendingDocument;
+
+        // El punto recuperado del gesto anterior, tal cual, para no perder la
+        // fraccion de pixel al volver a leerlo de la pantalla.
+        private bool hasResumedAnchor;
+        private PdfPoint resumedAnchor;
+
         public PdfSmoothZoomController(
             PdfRenderer renderer,
             Action<double> scaleChanged)
@@ -91,8 +135,6 @@ namespace FirmaAutomatica
 
             frameTimer = new Timer { Interval = 15 };
             frameTimer.Tick += FrameTimer_Tick;
-            settleTimer = new Timer { Interval = SettleMilliseconds };
-            settleTimer.Tick += SettleTimer_Tick;
             renderer.Disposed += delegate { Dispose(); };
             renderer.SizeChanged += delegate
             {
@@ -134,6 +176,11 @@ namespace FirmaAutomatica
                 Say("empieza gesto");
             }
 
+            if (!active)
+            {
+                lastPointer = pointer;
+            }
+
             if (!active && !Begin())
             {
                 Say("no se pudo tomar la foto: paso real");
@@ -144,6 +191,18 @@ namespace FirmaAutomatica
             }
 
             lastPointer = pointer;
+
+            // Si el puntero se ha movido durante el gesto, se apunta a lo que
+            // hay ahora debajo de el.
+            if (Math.Abs(pointer.X - anchorPointer.X) > 3 ||
+                Math.Abs(pointer.Y - anchorPointer.Y) > 3)
+            {
+                hasResumedAnchor = false;
+                anchorX = (pointer.X - targetX) / targetScale;
+                anchorY = (pointer.Y - targetY) / targetScale;
+                anchorPointer = pointer;
+            }
+
             var factor = Math.Pow(FactorPerNotch, delta / 120D);
 
             // Limites en escala real: no se puede prometer con la foto un
@@ -155,27 +214,23 @@ namespace FirmaAutomatica
             factor = realDeseada / realActual;
             if (Math.Abs(factor - 1D) < 0.0001D)
             {
-                RestartSettle();
+                KeepGestureAlive();
                 return;
             }
 
-            // Escalar la correspondencia alrededor del puntero: el punto de
-            // la foto que esta bajo el puntero se queda bajo el puntero.
-            targetX = pointer.X + ((targetX - pointer.X) * factor);
-            targetY = pointer.Y + ((targetY - pointer.Y) * factor);
+            // El punto al que se apunta, bajo el puntero; y luego, lo que
+            // el visor permita.
             targetScale *= factor;
+            targetX = pointer.X - (anchorX * targetScale);
+            targetY = pointer.Y - (anchorY * targetScale);
+            ClampToViewer();
 
             if (scaleChanged != null)
             {
                 scaleChanged(startRealScale * targetScale);
             }
 
-            if (!frameTimer.Enabled)
-            {
-                frameTimer.Start();
-            }
-
-            RestartSettle();
+            KeepGestureAlive();
         }
 
         /// <summary>
@@ -196,8 +251,11 @@ namespace FirmaAutomatica
             // escala y lejos del puntero. Medido: 106 % en vez de 88 %.
             active = false;
             frameTimer.Stop();
-            settleTimer.Stop();
-            Say("se aplica el zoom");
+            Say(string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                "se aplica el zoom: puntero {0},{1}  destino {2:0.0},{3:0.0} x{4:0.0000}  ancla {5:0.0},{6:0.0}",
+                lastPointer.X, lastPointer.Y, targetX, targetY, targetScale,
+                anchorX, anchorY));
 
             // El visor sigue en su estado original. El punto de la foto que
             // ha quedado bajo el puntero es, en el visor, el mismo punto de
@@ -207,6 +265,21 @@ namespace FirmaAutomatica
             var enFoto = new Point(
                 (int)Math.Round((lastPointer.X - targetX) / escala),
                 (int)Math.Round((lastPointer.Y - targetY) / escala));
+
+            // El punto al que se apuntaba, en el PDF, preguntado al visor
+            // mientras aun esta como en la foto.
+            var buscado = new PdfPoint();
+            try
+            {
+                buscado = hasResumedAnchor
+                    ? resumedAnchor
+                    : PdfZoomAnchor.PointToPdfExact(
+                        renderer,
+                        new PointF((float)anchorX, (float)anchorY));
+            }
+            catch (Exception)
+            {
+            }
 
             // La foto se queda puesta con el estado final mientras el visor
             // rasteriza, para que no se vea ni un fotograma intermedio.
@@ -220,11 +293,28 @@ namespace FirmaAutomatica
 
             try
             {
-                PdfZoomAnchor.MoveKeepingPoint(
-                    renderer,
-                    enFoto,
-                    lastPointer,
-                    startRealScale * escala);
+                // Se lleva el punto buscado del PDF al puntero, sin pasar por
+                // pixeles, y es el visor el que aplica sus limites de verdad:
+                // la animacion solo los estima —los huecos entre hojas no
+                // crecen con el aumento—, y con treinta hojas la estimacion
+                // del borde de arriba se iba 15 px. Sobre el fondo gris no hay
+                // punto del PDF: se usa lo que haya quedado bajo el puntero.
+                if (buscado.IsValid && buscado.Page >= 0)
+                {
+                    PdfZoomAnchor.MovePdfPointTo(
+                        renderer,
+                        buscado,
+                        lastPointer,
+                        startRealScale * escala);
+                }
+                else
+                {
+                    PdfZoomAnchor.MoveKeepingPoint(
+                        renderer,
+                        enFoto,
+                        lastPointer,
+                        startRealScale * escala);
+                }
 
                 // Se rasteriza por debajo de la foto: DrawToBitmap hace que
                 // el visor pinte —y guarde— las hojas nuevas sin que se vean
@@ -237,6 +327,8 @@ namespace FirmaAutomatica
                         descarte,
                         new Rectangle(Point.Empty, descarte.Size));
                 }
+
+                RememberPendingAnchor(buscado);
             }
             catch (Exception ex)
             {
@@ -306,6 +398,12 @@ namespace FirmaAutomatica
             shownScale = targetScale = 1D;
             shownX = targetX = 0D;
             shownY = targetY = 0D;
+            MeasureDocument();
+            anchorPointer = lastPointer;
+            anchorX = lastPointer.X;
+            anchorY = lastPointer.Y;
+            hasResumedAnchor = false;
+            ResumePendingAnchor();
 
             // La capa va en el contenedor del visor, como hermana por encima,
             // y NO dentro del visor. El visor es un control con desplazamiento:
@@ -339,6 +437,144 @@ namespace FirmaAutomatica
             overlay.Refresh();
             active = true;
             return true;
+        }
+
+        private static readonly System.Reflection.MethodInfo
+            DocumentBoundsMethod = typeof(PdfRenderer).GetMethod(
+                "GetDocumentBounds",
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic,
+                null,
+                Type.EmptyTypes,
+                null);
+
+        /// <summary>
+        /// Donde esta el documento entero al empezar, con las mismas reglas
+        /// que usa PdfiumViewer para colocarlo: en horizontal, si cabe, va
+        /// centrado; si no, donde diga la barra. En vertical, si cabe, arriba.
+        /// </summary>
+        private void MeasureDocument()
+        {
+            documentKnown = false;
+            if (DocumentBoundsMethod == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var tamano = ((Rectangle)DocumentBoundsMethod.Invoke(
+                    renderer,
+                    null)).Size;
+                if (tamano.Width <= 0 || tamano.Height <= 0)
+                {
+                    return;
+                }
+
+                var cliente = renderer.ClientSize;
+                var area = renderer.DisplayRectangle;
+                documentWidth = tamano.Width;
+                documentHeight = tamano.Height;
+                documentLeft = area.Width > cliente.Width
+                    ? area.X
+                    : (cliente.Width - tamano.Width) / 2D;
+                documentTop = area.Height > cliente.Height ? area.Y : 0D;
+                documentKnown = true;
+            }
+            catch (Exception)
+            {
+                documentKnown = false;
+            }
+        }
+
+        /// <summary>
+        /// Recoloca la correspondencia foto -> pantalla donde el visor la va
+        /// a dejar: sin esto la animacion prometia una posicion que al soltar
+        /// no se podia dar, y la hoja saltaba.
+        /// </summary>
+        private void ClampToViewer()
+        {
+            if (!documentKnown)
+            {
+                return;
+            }
+
+            var cliente = renderer.ClientSize;
+            var ancho = documentWidth * targetScale;
+            var alto = documentHeight * targetScale;
+            var izquierda = targetX + (documentLeft * targetScale);
+            var arriba = targetY + (documentTop * targetScale);
+
+            izquierda = ancho <= cliente.Width
+                ? (cliente.Width - ancho) / 2D
+                : Math.Max(cliente.Width - ancho, Math.Min(0D, izquierda));
+            arriba = alto <= cliente.Height
+                ? 0D
+                : Math.Max(cliente.Height - alto, Math.Min(0D, arriba));
+
+            targetX = izquierda - (documentLeft * targetScale);
+            targetY = arriba - (documentTop * targetScale);
+        }
+
+        /// <summary>
+        /// Si el gesto anterior empezo en el mismo sitio y nada ha cambiado
+        /// desde entonces, este sigue con el mismo punto del PDF: exacto, sin
+        /// el redondeo de volver a leerlo de la pantalla, y aunque los limites
+        /// del visor no dejaran llevarlo bajo el puntero la otra vez.
+        /// </summary>
+        private void ResumePendingAnchor()
+        {
+            if (!hasPendingAnchor)
+            {
+                return;
+            }
+
+            hasPendingAnchor = false;
+            try
+            {
+                if (!ReferenceEquals(pendingDocument, renderer.Document) ||
+                    Math.Abs(renderer.Zoom - pendingZoom) > 0.000001D ||
+                    renderer.DisplayRectangle.Location != pendingScroll ||
+                    Math.Abs(lastPointer.X - pendingPointer.X) > 3 ||
+                    Math.Abs(lastPointer.Y - pendingPointer.Y) > 3)
+                {
+                    return;
+                }
+
+                var ahora = PdfZoomAnchor.PointFromPdfPrecise(
+                    renderer,
+                    pendingAnchor);
+                anchorX = ahora.X;
+                anchorY = ahora.Y;
+                anchorPointer = pendingPointer;
+                hasResumedAnchor = true;
+                resumedAnchor = pendingAnchor;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void RememberPendingAnchor(PdfPoint buscado)
+        {
+            hasPendingAnchor = false;
+            if (!buscado.IsValid || buscado.Page < 0)
+            {
+                return;
+            }
+
+            try
+            {
+                hasPendingAnchor = true;
+                pendingAnchor = buscado;
+                pendingPointer = anchorPointer;
+                pendingZoom = renderer.Zoom;
+                pendingScroll = renderer.DisplayRectangle.Location;
+                pendingDocument = renderer.Document;
+            }
+            catch (Exception)
+            {
+            }
         }
 
         private void End()
@@ -378,10 +614,13 @@ namespace FirmaAutomatica
             }
         }
 
-        private void RestartSettle()
+        private void KeepGestureAlive()
         {
-            settleTimer.Stop();
-            settleTimer.Start();
+            lastWheelTicks = Environment.TickCount;
+            if (!frameTimer.Enabled)
+            {
+                frameTimer.Start();
+            }
         }
 
         private void FrameTimer_Tick(object sender, EventArgs e)
@@ -389,6 +628,21 @@ namespace FirmaAutomatica
             if (!active)
             {
                 frameTimer.Stop();
+                return;
+            }
+
+            // La rueda lleva quieta lo bastante: se aplica el zoom de verdad.
+            if (unchecked(Environment.TickCount - lastWheelTicks) >=
+                SettleMilliseconds)
+            {
+                Commit();
+                return;
+            }
+
+            if (shownScale == targetScale &&
+                shownX == targetX &&
+                shownY == targetY)
+            {
                 return;
             }
 
@@ -410,19 +664,12 @@ namespace FirmaAutomatica
                 shownScale = targetScale;
                 shownX = targetX;
                 shownY = targetY;
-                frameTimer.Stop();
             }
 
             if (overlay != null)
             {
                 overlay.Invalidate();
             }
-        }
-
-        private void SettleTimer_Tick(object sender, EventArgs e)
-        {
-            settleTimer.Stop();
-            Commit();
         }
 
         private void PaintOverlay(Graphics graphics, Size tamano)
@@ -517,9 +764,7 @@ namespace FirmaAutomatica
 
             disposed = true;
             frameTimer.Stop();
-            settleTimer.Stop();
             frameTimer.Dispose();
-            settleTimer.Dispose();
             End();
             if (overlay != null)
             {

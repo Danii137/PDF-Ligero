@@ -342,7 +342,7 @@ Pulsa `OCR` en la barra derecha o abre `Más -> OCR y enderezado…`.
 - Al terminar, el resultado sustituye la vista de la misma pestaña como una
   revisión recuperable: `Ctrl+Z` deshace y `Ctrl+Y` rehace.
 
-El original nunca se sobrescribe. Los PDF con XFA se bloquean; si existen
+El original no se toca hasta pulsar Guardar. Los PDF con XFA se bloquean; si existen
 firmas digitales, se avisa porque la nueva revisión no conserva su validez
 criptográfica. Tesseract, los idiomas `spa+eng` y la orientación `osd` se
 incluyen en `build\output\ocr`: no se utiliza ningún servicio en la nube ni se
@@ -426,9 +426,13 @@ Las revisiones temporales se guardan bajo
 documento como objetivo; la revisión activa y la inmediatamente anterior se
 conservan siempre. El límite global sí es de 2 GB y se mantiene además una
 reserva de espacio libre. Los archivos se crean únicamente al editar: abrir y
-leer PDFs sigue usando la carga perezosa de siempre. Los originales nunca se
-sobrescriben. Incluso una revisión ya guardada conserva su pequeño manifiesto
-de emergencia hasta completar un cierre normal y comprobado.
+leer PDFs sigue usando la carga perezosa de siempre. El PDF abierto solo se
+sustituye al pulsar **Guardar** (`Ctrl+S`): se escribe a un temporal en su
+carpeta, se verifica y se cambia de una vez, después de copiar la versión
+anterior a `%LOCALAPPDATA%\PDFLigero\Anteriores` (se guarda un mes); si el
+PDF estaba firmado, se pide confirmación antes. **Guardar como** (`F12`) escribe
+siempre en otro archivo. Incluso una revisión ya guardada conserva su pequeño
+manifiesto de emergencia hasta completar un cierre normal y comprobado.
 
 ## Imprimir
 

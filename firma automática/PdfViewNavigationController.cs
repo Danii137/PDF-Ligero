@@ -29,6 +29,7 @@ namespace FirmaAutomatica
         private readonly Action fitWidth;
         private readonly Action actualSize;
         private readonly PdfSmoothZoomController smoothZoom;
+        private readonly WheelHook wheelHook;
 
         private bool disposed;
 
@@ -58,6 +59,8 @@ namespace FirmaAutomatica
             this.fitWidth = fitWidth;
             this.actualSize = actualSize;
             smoothZoom = new PdfSmoothZoomController(renderer, zoomPreview);
+            PdfRendererCursorOverride.UseNormalPointerOnPage();
+            wheelHook = new WheelHook(this);
 
             renderer.Disposed += Renderer_Disposed;
             Application.AddMessageFilter(this);
@@ -94,6 +97,34 @@ namespace FirmaAutomatica
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// La rueda que llega directamente a la ventana del visor.
+        ///
+        /// ESTE ERA EL FALLO. PdfiumViewer instala su propio filtro de rueda
+        /// al crear cada visor —antes que el nuestro, asi que va primero—:
+        /// mira que hay bajo el raton de verdad y, si es el visor, le manda
+        /// la rueda directamente y se la come. Con el raton real, pues, el
+        /// zoom suave y anclado no llegaba a ejecutarse nunca: hacia zoom el
+        /// de PdfiumViewer, que no mira el puntero. Las pruebas no lo veian
+        /// porque mandaban la rueda con el raton fuera de la ventana.
+        /// Escuchando tambien en la ventana del visor da igual por donde
+        /// llegue.
+        /// </summary>
+        private bool HandleWheelAtRenderer(ref Message message)
+        {
+            if (disposed || !Allowed())
+            {
+                return false;
+            }
+
+            if (smoothZoom.IsActive && EndsGesture(ref message))
+            {
+                smoothZoom.Commit();
+            }
+
+            return HandleWheel(ref message);
         }
 
         private bool HandleWheel(ref Message message)
@@ -136,8 +167,9 @@ namespace FirmaAutomatica
                 smoothZoom.Wheel(enVisor, delta);
                 return true;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                AppLog.Write("No se pudo hacer zoom con la rueda: " + ex);
                 return false;
             }
         }
@@ -323,6 +355,80 @@ namespace FirmaAutomatica
             }
         }
 
+        private sealed class WheelHook : NativeWindow, IDisposable
+        {
+            private readonly PdfViewNavigationController owner;
+            private bool disposed;
+
+            public WheelHook(PdfViewNavigationController owner)
+            {
+                this.owner = owner;
+                if (owner.renderer.IsHandleCreated)
+                {
+                    AssignHandle(owner.renderer.Handle);
+                }
+
+                owner.renderer.HandleCreated += Renderer_HandleCreated;
+                owner.renderer.HandleDestroyed += Renderer_HandleDestroyed;
+            }
+
+            protected override void WndProc(ref Message m)
+            {
+                if (!disposed && m.Msg == WmMouseWheel)
+                {
+                    var atendida = false;
+                    try
+                    {
+                        atendida = owner.HandleWheelAtRenderer(ref m);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLog.Write("No se pudo atender la rueda: " + ex);
+                    }
+
+                    if (atendida)
+                    {
+                        m.Result = IntPtr.Zero;
+                        return;
+                    }
+                }
+
+                base.WndProc(ref m);
+            }
+
+            private void Renderer_HandleCreated(object sender, EventArgs e)
+            {
+                if (!disposed)
+                {
+                    AssignHandle(owner.renderer.Handle);
+                }
+            }
+
+            private void Renderer_HandleDestroyed(object sender, EventArgs e)
+            {
+                ReleaseHandle();
+            }
+
+            public void Dispose()
+            {
+                if (disposed)
+                {
+                    return;
+                }
+
+                disposed = true;
+                owner.renderer.HandleCreated -= Renderer_HandleCreated;
+                owner.renderer.HandleDestroyed -= Renderer_HandleDestroyed;
+                try
+                {
+                    ReleaseHandle();
+                }
+                catch (Exception)
+                {
+                }
+            }
+        }
+
         private void Renderer_Disposed(object sender, EventArgs e)
         {
             Dispose();
@@ -337,6 +443,7 @@ namespace FirmaAutomatica
 
             disposed = true;
             Application.RemoveMessageFilter(this);
+            wheelHook.Dispose();
             smoothZoom.Dispose();
             try
             {

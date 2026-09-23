@@ -467,6 +467,38 @@ namespace FirmaAutomatica
             }
         }
 
+        /// <summary>
+        /// Se ha guardado la revision activa ENCIMA del PDF de origen. Las
+        /// revisiones que apuntaban al origen —la primera, "Documento
+        /// abierto"— pasan a apuntar a la copia del anterior: sin esto,
+        /// deshacer hasta el principio enseñaria el PDF ya cambiado como si
+        /// fuera el original.
+        /// </summary>
+        public void MarkSavedOverSource(string previousSourceCopyPath)
+        {
+            if (!string.IsNullOrWhiteSpace(previousSourceCopyPath) &&
+                File.Exists(previousSourceCopyPath))
+            {
+                for (var index = 0; index < revisions.Count; index++)
+                {
+                    var revision = revisions[index];
+                    if (!revision.Owned &&
+                        string.Equals(
+                            revision.Path,
+                            SourcePath,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        revisions[index] = new PdfEditRevision(
+                            previousSourceCopyPath,
+                            revision.Description,
+                            false);
+                    }
+                }
+            }
+
+            MarkCurrentRevisionSaved(SourcePath);
+        }
+
         public void CleanupObsoleteRevisions(string activePath)
         {
             for (var index = pendingDeletionPaths.Count - 1;

@@ -54,6 +54,44 @@ namespace FirmaAutomatica
             target.HandleDestroyed += Target_HandleDestroyed;
         }
 
+        private static bool normalPointerApplied;
+
+        /// <summary>
+        /// Flecha normal sobre la pagina en vez de la mano de desplazar.
+        ///
+        /// La mano la pone PdfiumViewer en cuanto la pagina no cabe en la
+        /// ventana, que con planos es casi siempre, y da la sensacion de estar
+        /// arrastrando papel en vez de señalar. Todos los visores de trabajo
+        /// señalan con la flecha. Se cambia el cursor que la biblioteca guarda
+        /// para eso, asi arrastrar sigue desplazando y la mano de los enlaces
+        /// se mantiene, porque esa la decide por otro lado.
+        /// </summary>
+        public static void UseNormalPointerOnPage()
+        {
+            if (normalPointerApplied)
+            {
+                return;
+            }
+
+            normalPointerApplied = true;
+            try
+            {
+                var campo = typeof(PdfiumViewer.PdfRenderer).BaseType.GetField(
+                    "PanCursor",
+                    System.Reflection.BindingFlags.Static |
+                    System.Reflection.BindingFlags.NonPublic |
+                    System.Reflection.BindingFlags.Public);
+                if (campo != null)
+                {
+                    campo.SetValue(null, Cursors.Default);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("No se pudo quitar la mano del visor: " + ex);
+            }
+        }
+
         protected override void WndProc(ref Message m)
         {
             if (!disposed && m.Msg == WmSetCursor)

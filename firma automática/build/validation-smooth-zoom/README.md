@@ -22,8 +22,11 @@ sitio exacto donde lo dejó la animación.
 - La escala final es la pedida (×1,2 por muesca).
 - Alejar las mismas muescas **vuelve a la escala de partida**, también anclado.
 - La foto que toma el gesto no sale en blanco.
+- La rueda que PdfiumViewer manda **directa a la ventana del visor** acaba en
+  el zoom suave, no en el suyo.
+- Sobre la hoja se ve la **flecha**, no la mano.
 
-## Cuatro trampas que costaron encontrar
+## Trampas que costaron encontrar
 
 1. **La capa, dentro del visor, lo desplazaba.** El visor es un control con
    desplazamiento: al meterle una hija en (0,0) se movía solo para dejarla a la
@@ -37,6 +40,26 @@ sitio exacto donde lo dejó la animación.
    rueda dejaba de atenderse. `StretchBlt` con HALFTONE hace lo mismo en 2,5 ms.
 4. **Tras aplicar, la vista se corría 13 px** al aparecer la barra horizontal.
    El anclaje hace una segunda pasada.
+5. **Con el ratón de verdad, el zoom suave no se ejecutaba nunca.** PdfiumViewer
+   instala su propio filtro de rueda al crear cada visor —antes que el
+   nuestro, así que va primero—: mira qué hay bajo el ratón real y, si es el
+   visor, le manda la rueda directamente y se la come. Hacía zoom el de
+   PdfiumViewer, que no mira el puntero: «el zoom se va al centro». Las pruebas
+   no lo veían porque mandaban la rueda con el ratón fuera de la ventana.
+   Ahora se escucha también en la ventana del visor.
+6. **`PointToPdf` se equivoca unos 2,4 px** (`PointFromPdf` es exacto). El
+   anclaje tomaba el punto con uno y lo recolocaba con el otro: cada gesto
+   corría el plano; seis muescas sueltas, 37 px. Se invierte `PointFromPdf`
+   con tres esquinas de la hoja, y entre gestos seguidos se conserva el mismo
+   punto del PDF para no perder la fracción de píxel.
+7. **Parar y arrancar un `Timer` de WinForms costaba 21 ms** (destruye y crea
+   su ventana interna), y se hacía en cada muesca. Un solo temporizador dura
+   todo el gesto y mira cuánto lleva quieta la rueda.
+8. **El visor no deja la hoja donde se quiera.** Si la hoja cabe de ancho, la
+   centra; si cabe de alto, la pega arriba; y nunca desplaza más allá del
+   borde de la hoja. La animación ya respeta esos límites, para no prometer un
+   sitio que al soltar no se puede dar, y el punto al que se apuntaba se
+   recuerda: en cuanto la hoja crece lo bastante, vuelve bajo el puntero.
 
 ## Lo que no se puede quitar
 
@@ -56,9 +79,11 @@ Set-Location -LiteralPath '...\firma automática\build\validation-smooth-zoom'
 
 ```text
 5 muescas de Ctrl+rueda:
-  ANTES  cada muesca congelaba 172 ms   total 859 ms
-  AHORA  cada muesca responde en 10.5 ms   peor fotograma 24 ms   render final 645 ms
-  Foto inicial del visor: 21 ms   escala final 88 %   punto bajo el puntero: error 0 px
-  Alejar las mismas muescas: escala 35.5 % (partida 35.5 %)   error bajo el puntero 2 px
+  ANTES  cada muesca congelaba 199 ms   total 995 ms
+  AHORA  cada muesca responde en 0.0 ms   peor fotograma 27 ms   render final 766 ms
+  Foto inicial del visor: 25 ms   escala final 88 %   punto bajo el puntero: error 1 px
+  Alejar las mismas muescas: escala 35.5 % (partida 35.5 %)   error bajo el puntero 1 px
+  Rueda enviada directa al visor (como hace PdfiumViewer): la atiende el zoom suave
+  Cursor sobre la hoja: flecha normal
 PASS: el zoom con la rueda es fluido y aterriza donde debe.
 ```

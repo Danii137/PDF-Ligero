@@ -75,6 +75,8 @@ namespace FirmaAutomatica
         private readonly ClosablePdfTabControl documentTabs;
         private readonly FlowLayoutPanel toolRail;
         private readonly Button openToolButton;
+        private readonly Button saveToolButton;
+        private readonly Button saveAsToolButton;
         private readonly Button searchToolButton;
         private readonly Button contentEditToolButton;
         private readonly Button ocrToolButton;
@@ -94,6 +96,7 @@ namespace FirmaAutomatica
         private readonly ToolStripMenuItem redoMenuItem;
         private readonly ToolStripMenuItem copyTextMenuItem;
         private readonly ToolStripMenuItem selectPageTextMenuItem;
+        private readonly ToolStripMenuItem saveMenuItem;
         private readonly ToolStripMenuItem saveCopyMenuItem;
         private readonly ToolStripMenuItem printMenuItem;
         private readonly ToolStripMenuItem fitPageMenuItem;
@@ -565,6 +568,14 @@ namespace FirmaAutomatica
                 "\uE8E5",
                 "Abrir uno o varios PDF (Ctrl+O)",
                 OpenButton_Click);
+            saveToolButton = CreateToolButton(
+                "",
+                "Guardar (Ctrl+S)",
+                SaveMenuItem_Click);
+            saveAsToolButton = CreateToolButton(
+                "",
+                "Guardar como… (F12)",
+                SaveCopyMenuItem_Click);
             searchToolButton = CreateToolButton(
                 "\uE721",
                 "Buscar texto (Ctrl+F; empieza al pulsar Enter)",
@@ -614,6 +625,8 @@ namespace FirmaAutomatica
                 MoreToolButton_Click);
 
             toolRail.Controls.Add(openToolButton);
+            toolRail.Controls.Add(saveToolButton);
+            toolRail.Controls.Add(saveAsToolButton);
             toolRail.Controls.Add(searchToolButton);
             toolRail.Controls.Add(contentEditToolButton);
             toolRail.Controls.Add(ocrToolButton);
@@ -785,9 +798,13 @@ namespace FirmaAutomatica
                 "Seleccionar el texto de la página   Ctrl+A",
                 delegate { SelectAllTextOnPage(); });
             moreMenu.Items.Add(new ToolStripSeparator());
+            saveMenuItem = AddMenuItem(
+                moreMenu,
+                "Guardar                            Ctrl+S",
+                SaveMenuItem_Click);
             saveCopyMenuItem = AddMenuItem(
                 moreMenu,
-                "Guardar una copia...     Ctrl+S",
+                "Guardar como...                    F12",
                 SaveCopyMenuItem_Click);
             printMenuItem = AddMenuItem(
                 moreMenu,
@@ -3133,6 +3150,204 @@ namespace FirmaAutomatica
             SaveWorkspaceCopy(workspace);
         }
 
+        private void SaveMenuItem_Click(object sender, EventArgs e)
+        {
+            if (IsPageStructureOperationInProgress)
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+
+            var workspace = GetLoadedActiveWorkspace();
+            if (workspace == null || !HasChangesToSave(workspace))
+            {
+                return;
+            }
+
+            // Un PDF con contraseña se abre de solo lectura: se guarda aparte.
+            if (workspace.IsPasswordProtected)
+            {
+                SaveWorkspaceCopy(workspace);
+                return;
+            }
+
+            SaveWorkspaceOverOriginal(workspace);
+        }
+
+        /// <summary>
+        /// Lo que se ve difiere de lo que hay en el PDF abierto. Tras "Guardar
+        /// como" los cambios estan a salvo en otro archivo, pero el abierto
+        /// sigue sin ellos, y Guardar tiene que poder llevarlos alli.
+        /// </summary>
+        private static bool HasChangesToSave(PdfWorkspace workspace)
+        {
+            if (workspace == null ||
+                workspace.EditSession == null ||
+                string.IsNullOrWhiteSpace(workspace.ContentPath) ||
+                string.Equals(
+                    Path.GetFullPath(workspace.ContentPath),
+                    Path.GetFullPath(workspace.Path),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (workspace.EditHistoryFaulted)
+            {
+                return !workspace.FaultedChangesSaved;
+            }
+
+            return workspace.EditSession.HasUnsavedChanges ||
+                !string.Equals(
+                    workspace.EditSession.LastSavedTargetPath,
+                    Path.GetFullPath(workspace.Path),
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string PreviousVersionsDirectory
+        {
+            get
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(
+                        Environment.SpecialFolder.LocalApplicationData),
+                    "PDFLigero",
+                    "Anteriores");
+            }
+        }
+
+        private static bool HasDigitalSignatures(string path)
+        {
+            iTextSharp.text.pdf.PdfReader reader = null;
+            try
+            {
+                reader = new iTextSharp.text.pdf.PdfReader(path);
+                return reader.AcroFields != null &&
+                    reader.AcroFields.GetSignatureNames().Count > 0;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+            finally
+            {
+                if (reader != null)
+                {
+                    reader.Close();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Guardar de verdad: los cambios van al PDF abierto. Antes se copia el
+        /// PDF tal como estaba a la carpeta de anteriores, que se guarda un mes.
+        /// </summary>
+        private bool SaveWorkspaceOverOriginal(PdfWorkspace workspace)
+        {
+            if (workspace == null ||
+                workspace.IsDisposed ||
+                !workspace.IsLoaded ||
+                !File.Exists(workspace.ContentPath))
+            {
+                return false;
+            }
+
+            if (!File.Exists(workspace.Path))
+            {
+                MessageBox.Show(
+                    this,
+                    "El PDF abierto ya no está en su carpeta. Usa Guardar como para elegir dónde guardarlo.",
+                    "Guardar",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return SaveWorkspaceCopy(workspace);
+            }
+
+            if (HasDigitalSignatures(workspace.Path))
+            {
+                var answer = MessageBox.Show(
+                    this,
+                    "Este PDF está firmado digitalmente.\r\n\r\n" +
+                    "Si guardas encima, la versión firmada se sustituye y las " +
+                    "firmas pueden dejar de ser válidas. La versión anterior " +
+                    "quedará guardada en la carpeta de anteriores.\r\n\r\n" +
+                    "¿Guardar encima de todas formas?\r\n" +
+                    "(Con «No» puedes usar Guardar como.)",
+                    "Guardar",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning,
+                    MessageBoxDefaultButton.Button2);
+                if (answer != DialogResult.Yes)
+                {
+                    return false;
+                }
+            }
+
+            UseWaitCursor = true;
+            try
+            {
+                ReleaseSavedCopyVerificationLease(workspace);
+                string savedFullHash = null;
+                string backupPath = null;
+                using (var progress = new PdfBackgroundOperationForm(
+                    "Guardando PDF",
+                    "Guardando los cambios y verificando…",
+                    delegate
+                    {
+                        string copia;
+                        savedFullHash = PdfAtomicFileService.ReplaceOriginal(
+                            workspace.ContentPath,
+                            workspace.Path,
+                            PreviousVersionsDirectory,
+                            out copia);
+                        backupPath = copia;
+                    }))
+                {
+                    progress.Run(this);
+                }
+
+                workspace.LastSavedPath = workspace.Path;
+                var savedInfo = new FileInfo(workspace.Path);
+                workspace.LastSavedLength = savedInfo.Length;
+                workspace.LastSavedWriteUtcTicks =
+                    savedInfo.LastWriteTimeUtc.Ticks;
+                workspace.LastSavedFingerprint =
+                    PdfAtomicFileService.ComputeContentFingerprint(
+                        workspace.Path);
+                workspace.LastSavedFullHash = savedFullHash;
+                if (workspace.EditSession != null &&
+                    !workspace.EditHistoryFaulted)
+                {
+                    workspace.EditSession.MarkSavedOverSource(backupPath);
+                }
+                else if (workspace.EditHistoryFaulted)
+                {
+                    workspace.FaultedChangesSaved = true;
+                }
+
+                RefreshWorkspaceEditState(workspace);
+                AppLog.Write(
+                    "PDF guardado encima del original: " + workspace.Path +
+                    ". Version anterior en: " + backupPath);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("No se pudo guardar encima del PDF: " + ex);
+                ShowPdfProblem(
+                    "Guardar",
+                    "No se pudieron guardar los cambios en el PDF.",
+                    "El PDF original no se ha modificado. Puedes usar Guardar como para guardarlo con otro nombre.",
+                    ex,
+                    workspace.Path);
+                return false;
+            }
+            finally
+            {
+                UseWaitCursor = false;
+            }
+        }
+
         private bool SaveWorkspaceCopy(PdfWorkspace workspace)
         {
             if (workspace == null ||
@@ -3148,7 +3363,7 @@ namespace FirmaAutomatica
             {
                 dialog.Title = workspace.EditSession != null &&
                     workspace.EditSession.HasUnsavedChanges
-                        ? "Guardar PDF editado"
+                        ? "Guardar como"
                         : "Guardar una copia";
                 dialog.Filter = "Documento PDF (*.pdf)|*.pdf";
                 dialog.AddExtension = true;
@@ -3170,13 +3385,10 @@ namespace FirmaAutomatica
                 var targetPath = NormalizePdfPath(dialog.FileName);
                 if (string.Equals(targetPath, workspace.Path, StringComparison.OrdinalIgnoreCase))
                 {
-                    MessageBox.Show(
-                        this,
-                        "Elige otro nombre para no sustituir el PDF que está abierto.",
-                        "Guardar una copia",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Information);
-                    return false;
+                    // Elegir el mismo PDF es Guardar: se guarda encima, con
+                    // la copia del anterior. Sin cambios, ya es ese archivo.
+                    return !HasChangesToSave(workspace) ||
+                        SaveWorkspaceOverOriginal(workspace);
                 }
 
                 UseWaitCursor = true;
@@ -9607,6 +9819,14 @@ namespace FirmaAutomatica
             {
                 e.Handled = true;
                 e.SuppressKeyPress = true;
+                SaveMenuItem_Click(sender, EventArgs.Empty);
+                return;
+            }
+
+            if (e.KeyCode == Keys.F12 && !e.Control && !e.Alt)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
                 SaveCopyMenuItem_Click(sender, EventArgs.Empty);
                 return;
             }
@@ -9810,6 +10030,33 @@ namespace FirmaAutomatica
             else
             {
                 emptyPanel.BringToFront();
+            }
+        }
+
+        private void RefreshSaveAvailability()
+        {
+            var hasLoadedDocument = activeWorkspace != null &&
+                activeWorkspace.IsLoaded &&
+                !activeWorkspace.IsDisposed;
+            saveCopyMenuItem.Enabled =
+                hasLoadedDocument &&
+                !IsPageStructureOperationInProgress;
+            saveAsToolButton.Enabled = saveCopyMenuItem.Enabled;
+            // Guardar solo tiene sentido con cambios: sin ellos el PDF abierto
+            // ya es exactamente lo que se ve.
+            var canSave =
+                saveCopyMenuItem.Enabled &&
+                !activeWorkspace.IsPasswordProtected &&
+                HasChangesToSave(activeWorkspace);
+            saveMenuItem.Enabled = canSave;
+            if (saveToolButton.Enabled != canSave)
+            {
+                saveToolButton.Enabled = canSave;
+                toolTip.SetToolTip(
+                    saveToolButton,
+                    canSave
+                        ? "Guardar los cambios en este PDF (Ctrl+S)"
+                        : "Guardar (Ctrl+S) · no hay cambios que guardar");
             }
         }
 
@@ -10048,9 +10295,7 @@ namespace FirmaAutomatica
                 hasLoadedDocument &&
                 !comparisonActive &&
                 CanSelectText(activeWorkspace);
-            saveCopyMenuItem.Enabled =
-                hasLoadedDocument &&
-                !IsPageStructureOperationInProgress;
+            RefreshSaveAvailability();
             printMenuItem.Enabled =
                 hasLoadedDocument &&
                 !IsPageStructureOperationInProgress;

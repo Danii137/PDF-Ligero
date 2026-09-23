@@ -34,8 +34,11 @@ contextual del Explorador.
 - PDFs protegidos con contraseña: se piden en español y se abren en modo de solo
   lectura, explicando qué herramientas quedan desactivadas y por qué.
 
-El original nunca se sobrescribe: cada operación crea una revisión recuperable
-con `Ctrl+Z` y `Ctrl+Y`, y la aplicación sobrevive a un cierre inesperado.
+Cada operación crea una revisión recuperable con `Ctrl+Z` y `Ctrl+Y`, y la
+aplicación sobrevive a un cierre inesperado. El PDF abierto solo cambia al
+pulsar **Guardar** (`Ctrl+S`), y antes se copia la versión anterior a
+`%LOCALAPPDATA%\PDFLigero\Anteriores`, donde se guarda un mes. **Guardar
+como** (`F12`) lo deja intacto y escribe en otro archivo.
 
 ## Word2PDF
 
