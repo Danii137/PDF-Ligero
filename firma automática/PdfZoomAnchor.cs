@@ -212,16 +212,45 @@ namespace FirmaAutomatica
             }
             catch (Exception)
             {
-                renderer.Zoom = limitado;
-                return;
+                antes = new PdfPoint();
             }
+
+            // Posicion del raton dentro del documento entero, en proporcion.
+            // Sirve cuando el raton no esta sobre ninguna hoja: el fondo gris
+            // que rodea las paginas o el hueco entre ellas. Antes, en ese caso
+            // se renunciaba al anclaje y el zoom se iba a la esquina superior
+            // izquierda; con planos en ajuste al ancho, casi media ventana es
+            // fondo gris, asi que pasaba a menudo.
+            var areaAntes = renderer.DisplayRectangle;
+            var fraccionX = areaAntes.Width <= 0
+                ? 0.5D
+                : (anchorClientPoint.X - areaAntes.X) / (double)areaAntes.Width;
+            var fraccionY = areaAntes.Height <= 0
+                ? 0.5D
+                : (anchorClientPoint.Y - areaAntes.Y) / (double)areaAntes.Height;
 
             renderer.Zoom = limitado;
 
             if (!antes.IsValid || antes.Page < 0)
             {
-                // El raton estaba en el hueco entre paginas: no hay punto del
-                // documento al que agarrarse, y con cambiar el aumento basta.
+                try
+                {
+                    var areaDespues = renderer.DisplayRectangle;
+                    renderer.SetDisplayRectLocation(
+                        new Point(
+                            (int)Math.Round(
+                                anchorClientPoint.X -
+                                (fraccionX * areaDespues.Width)),
+                            (int)Math.Round(
+                                anchorClientPoint.Y -
+                                (fraccionY * areaDespues.Height))));
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Write(
+                        "No se pudo mantener el punto al hacer zoom: " + ex);
+                }
+
                 return;
             }
 

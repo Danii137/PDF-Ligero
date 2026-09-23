@@ -83,25 +83,33 @@ namespace FirmaAutomatica
         private bool HandleWheel(ref Message message)
         {
             // La rueda va a la ventana que tiene el foco, no a la que esta
-            // debajo del raton, asi que se mira donde esta el puntero.
-            Point enPantalla;
+            // debajo del raton. El propio mensaje trae donde estaba el
+            // puntero, en coordenadas de pantalla, en el momento de girar la
+            // rueda: se usa eso y no Cursor.Position, que puede ir con retraso
+            // si el raton sigue moviendose.
             try
             {
-                enPantalla = Cursor.Position;
+                var lParam = (long)message.LParam;
+                var enPantalla = new Point(
+                    (short)(lParam & 0xFFFF),
+                    (short)((lParam >> 16) & 0xFFFF));
                 var enVisor = renderer.PointToClient(enPantalla);
                 if (!renderer.ClientRectangle.Contains(enVisor))
                 {
                     return false;
                 }
 
-                var control = (Control.ModifierKeys & Keys.Control) ==
-                    Keys.Control;
+                // Ctrl viene tambien en el mensaje (MK_CONTROL). Se acepta
+                // por cualquiera de las dos vias.
+                var wParam = (long)message.WParam;
+                var control = (wParam & 0x0008) != 0 ||
+                    (Control.ModifierKeys & Keys.Control) == Keys.Control;
                 if (!control)
                 {
                     return false;
                 }
 
-                var delta = (short)((long)message.WParam >> 16);
+                var delta = (short)((wParam >> 16) & 0xFFFF);
                 if (delta == 0)
                 {
                     return true;
